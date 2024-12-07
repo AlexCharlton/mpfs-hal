@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "mpfs-hal",
+    "mpfs-pac",
+    # "mpfs-hal-procmacros",
+    "mpfs-hal-embassy",
+    "examples",
+]
+
+exclude = ["hss-tty-flasher"]
+
+[workspace.dependencies]
+critical-section = { version = "1.2", features = ["restore-state-u8"] }

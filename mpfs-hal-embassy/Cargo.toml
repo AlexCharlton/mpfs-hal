@@ -1,0 +1,24 @@
+[package]
+name = "mpfs-hal-embassy"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+debug_logs = []
+
+[dependencies]
+mpfs-hal = { path = "../mpfs-hal" }
+mpfs-pac = { path = "../mpfs-pac" }
+
+critical-section = { workspace = true }
+embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git", features = [
+    "executor-thread",
+    "integrated-timers",
+    "nightly",
+] }
+embassy-time = { version = "0.3", git = "https://github.com/embassy-rs/embassy.git" }
+embassy-time-driver = { version = "0.1", git = "https://github.com/embassy-rs/embassy.git", features = [
+    "tick-hz-1_000_000",
+] }
+embassy-sync = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git" }
+static_cell = "2.1"

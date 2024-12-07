@@ -1,0 +1,25 @@
+{
+    "folders": [
+        {
+            "name": "MPFS HAL",
+            "path": "mpfs-hal"
+        },
+        {
+            "name": "MPFS PAC",
+            "path": "mpfs-pac"
+        },
+        {
+            "name": "MPFS HAL Embassy",
+            "path": "mpfs-hal-embassy"
+        },
+        {
+            "name": "Examples",
+            "path": "examples"
+        },
+    ],
+    "settings": {
+        // Default settings for RISC-V projects
+        "rust-analyzer.cargo.target": "riscv64gc-unknown-none-elf",
+        "rust-analyzer.checkOnSave.allTargets": false,
+    }
+}

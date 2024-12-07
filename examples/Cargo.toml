@@ -1,0 +1,18 @@
+[package]
+name = "examples"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+mpfs-hal = { path = "../mpfs-hal", features = ["alloc"] }
+embassy-time = { version = "0.3", git = "https://github.com/embassy-rs/embassy.git" }
+mpfs-hal-embassy = { path = "../mpfs-hal-embassy" }
+
+# Remove me
+embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git", features = [
+    "executor-thread",
+    "integrated-timers",
+    "nightly",
+] }
+static_cell = "2.1"

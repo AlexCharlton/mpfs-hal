@@ -1,0 +1,17 @@
+[package]
+name = "mpfs-pac"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+test = false
+bench = false
+
+[dependencies]
+riscv = "0.12"
+
+[build-dependencies]
+bindgen = "0.70"
+cc = "1.0"
+walkdir = "2.4"

@@ -1,0 +1,15 @@
+[package]
+name = "mpfs-hal"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+debug_logs = []
+alloc = ["embedded-alloc"]
+
+[dependencies]
+mpfs-pac = { path = "../mpfs-pac" }
+critical-section = { workspace = true }
+embedded-alloc = { version = "0.6", optional = true }
+riscv = "0.12"
+itoa = "1.0"
