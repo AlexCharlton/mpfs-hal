@@ -1,6 +1,14 @@
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
+fn get_board_path() -> &'static str {
+    if cfg!(feature = "beaglev-fire") {
+        "beaglev-fire"
+    } else {
+        panic!("No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)")
+    }
+}
+
 fn main() {
     // Find all C source files, excluding specific directories
     let c_sources: Vec<PathBuf> = WalkDir::new("mpfs-platform")
@@ -29,6 +37,11 @@ fn main() {
 
     // Common compiler flags from the makefile
     let mut build = cc::Build::new();
+    let board = get_board_path();
+
+    let board_include = format!("mpfs-platform/boards/{}", board);
+    let board_config_include = format!("mpfs-platform/boards/{}/platform_config", board);
+
     build
         .flag("-march=rv64gc")
         .flag("-mabi=lp64d")
@@ -45,8 +58,8 @@ fn main() {
         .includes(&[
             "mpfs-platform/application",
             "mpfs-platform/platform",
-            "mpfs-platform/boards/beaglev-fire",
-            "mpfs-platform/boards/beaglev-fire/platform_config",
+            &board_include,
+            &board_config_include,
         ]);
 
     // Compile C sources
@@ -87,6 +100,9 @@ fn main() {
     println!("cargo:rustc-link-arg=-Tlinker.ld");
     println!("cargo:rustc-link-arg=--gc-sections");
 
+    let board_include = format!("-Impfs-platform/boards/{}", board);
+    let board_config_include = format!("-Impfs-platform/boards/{}/platform_config", board);
+
     // Generate bindings
     let bindings = bindgen::Builder::default()
         .header("mpfs-platform/wrapper.h")
@@ -95,8 +111,8 @@ fn main() {
         .clang_args(&[
             "-Impfs-platform",
             "-Impfs-platform/platform",
-            "-Impfs-platform/boards/beaglev-fire",
-            "-Impfs-platform/boards/beaglev-fire/platform_config",
+            &board_include,
+            &board_config_include,
         ])
         .generate()
         .expect("Unable to generate bindings");

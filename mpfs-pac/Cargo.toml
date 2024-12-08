@@ -8,6 +8,10 @@ build = "build.rs"
 test = false
 bench = false
 
+[features]
+default = ["beaglev-fire"]
+beaglev-fire = []
+
 [dependencies]
 riscv = "0.12"
 
