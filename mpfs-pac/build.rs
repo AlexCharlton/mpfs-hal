@@ -10,6 +10,17 @@ fn get_board_path() -> &'static str {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=mpfs-platform");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=linker.ld");
+
+    // Skip compilation steps if we're running on docs.rs
+    if std::env::var("DOCS_RS").is_ok() {
+        // Still generate bindings for documentation
+        generate_bindings();
+        return;
+    }
+
     // Find all C source files, excluding specific directories
     let c_sources: Vec<PathBuf> = WalkDir::new("mpfs-platform")
         .into_iter()
@@ -100,10 +111,15 @@ fn main() {
     println!("cargo:rustc-link-arg=-Tlinker.ld");
     println!("cargo:rustc-link-arg=--gc-sections");
 
+    generate_bindings();
+}
+
+// Extract bindings generation into a separate function
+fn generate_bindings() {
+    let board = get_board_path();
     let board_include = format!("-Impfs-platform/boards/{}", board);
     let board_config_include = format!("-Impfs-platform/boards/{}/platform_config", board);
 
-    // Generate bindings
     let bindings = bindgen::Builder::default()
         .header("mpfs-platform/wrapper.h")
         .use_core()
@@ -117,13 +133,8 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings");
 
-    // Write the bindings to an output file
     let out_path = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
-
-    println!("cargo:rerun-if-changed=mpfs-platform");
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=linker.ld");
 }
