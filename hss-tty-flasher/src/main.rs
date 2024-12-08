@@ -13,6 +13,8 @@ use std::time::Duration;
 mod drives;
 use drives::*;
 
+mod image_gen;
+
 // TTY for BeagleV-Fire UART
 // Starts up in TERMINAL mode, where it functions as a normal TTY
 // CTRL-Y toggles FLASH mode, where rebooting will cause the flash process to start
@@ -292,19 +294,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 || args.len() > 3 {
-        eprintln!("Usage: flasher <port> [<image>]");
+        eprintln!("Usage: flasher <port> [<elf>]");
         std::process::exit(1);
     }
     let port_name = &args[1];
-    let image_path = if args.len() == 3 {
+    let elf_path = if args.len() == 3 {
         Some(&args[2])
     } else {
         None
     };
 
     let mut mode = Mode::Terminal;
-    if image_path.is_none() {
-        println!("No image specified. Flash mode will not be available.");
+    if elf_path.is_none() {
+        println!("No ELF specified. Flash mode will not be available.");
         mode = Mode::TerminalOnly;
     }
 
@@ -360,12 +362,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 state_tx.send(flash_state)?;
                 log_writer.write_all(
                     format!(
-                        "Flashing image {:?} to drive {:?}\n",
-                        image_path, drive_to_flash
+                        "Flashing ELF {:?} to drive {:?}\n",
+                        elf_path.unwrap(),
+                        drive_to_flash
                     )
                     .as_bytes(),
                 )?;
-                flash_image_to_drive(image_path.unwrap(), &drive_to_flash, &mut log_writer)?;
+                let image_path = image_gen::generate_hss_payload(elf_path.unwrap())?;
+                flash_image_to_drive(&image_path, &drive_to_flash, &mut log_writer)?;
                 eject_drive(&drive_to_flash)?;
                 log_writer.write_all(format!("Drive ejected\n").as_bytes())?;
                 port_writer.write_all(&[0x03])?;
