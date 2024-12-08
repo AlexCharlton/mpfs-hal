@@ -14,6 +14,8 @@ mod alloc;
 #[cfg(feature = "alloc")]
 pub use alloc::init_heap;
 
+pub use mpfs_hal_procmacros::{hart1_main, hart2_main, hart3_main, hart4_main};
+
 extern "C" {
     fn __init_once();
     fn __hart1_entry();

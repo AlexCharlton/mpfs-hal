@@ -3,6 +3,82 @@ use quote::quote;
 use syn::{parse_macro_input, ItemFn};
 
 //-------------------------------------------------------------
+// (Non-embassy) Entry point macros
+/*
+Macro usage:
+#[hart1_main]
+fn hart1_main() {
+    <main_body>
+}
+
+Expands to:
+#[no_mangle]
+pub fn __hart1_entry() {
+    <main_body>
+}
+*/
+
+#[proc_macro_attribute]
+pub fn hart1_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    let fn_body = &input_fn.block;
+
+    let expanded = quote! {
+        #[no_mangle]
+        pub fn __hart1_entry() {
+            #fn_body
+        }
+    };
+
+    expanded.into()
+}
+
+#[proc_macro_attribute]
+pub fn hart2_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    let fn_body = &input_fn.block;
+
+    let expanded = quote! {
+        #[no_mangle]
+        pub fn __hart2_entry() {
+            #fn_body
+        }
+    };
+
+    expanded.into()
+}
+
+#[proc_macro_attribute]
+pub fn hart3_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    let fn_body = &input_fn.block;
+
+    let expanded = quote! {
+        #[no_mangle]
+        pub fn __hart3_entry() {
+            #fn_body
+        }
+    };
+
+    expanded.into()
+}
+
+#[proc_macro_attribute]
+pub fn hart4_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    let fn_body = &input_fn.block;
+
+    let expanded = quote! {
+        #[no_mangle]
+        pub fn __hart4_entry() {
+            #fn_body
+        }
+    };
+
+    expanded.into()
+}
+
+//-------------------------------------------------------------
 // Embassy macros
 /*
 // Macro usage:

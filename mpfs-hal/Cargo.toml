@@ -9,6 +9,8 @@ alloc = ["embedded-alloc"]
 
 [dependencies]
 mpfs-pac = { path = "../mpfs-pac" }
+mpfs-hal-procmacros = { path = "../mpfs-hal-procmacros" }
+
 critical-section = { workspace = true }
 embedded-alloc = { version = "0.6", optional = true }
 riscv = "0.12"

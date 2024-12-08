@@ -3,13 +3,13 @@
 
 use mpfs_hal;
 
-#[no_mangle]
-pub fn __hart1_entry() {
+#[mpfs_hal::hart1_main]
+pub fn hart1_main() {
     mpfs_hal::uart_puts(b"Hello World from Rust from hart 1!\n\0".as_ptr());
 }
 
-#[no_mangle]
-pub fn __hart2_entry() {
+#[mpfs_hal::hart2_main]
+pub fn hart2_main() {
     mpfs_hal::uart_puts(b"Hello World from Rust from hart 2!\n\0".as_ptr());
 }
 

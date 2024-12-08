@@ -409,6 +409,7 @@ dependencies = [
  "critical-section",
  "embedded-alloc",
  "itoa",
+ "mpfs-hal-procmacros",
  "mpfs-pac",
  "riscv",
 ]
