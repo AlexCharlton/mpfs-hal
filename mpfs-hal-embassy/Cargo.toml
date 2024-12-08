@@ -17,7 +17,6 @@ debug_logs = ["mpfs-hal/debug_logs"]
 
 [dependencies]
 mpfs-hal = { version = "0.1", path = "../mpfs-hal", features = [] }
-mpfs-pac = { version = "0.1", path = "../mpfs-pac" }
 mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros", features = [
     "embassy",
 ] }

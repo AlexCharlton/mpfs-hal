@@ -5,10 +5,10 @@ use embassy_executor::{raw, Spawner};
 #[cfg(feature = "debug_logs")]
 use mpfs_hal::uart_puts;
 
-use mpfs_pac as sys;
+use mpfs_hal::pac;
 
-static SIGNAL_WORK_THREAD_MODE: [AtomicBool; sys::MPFS_HAL_LAST_HART as usize] =
-    [const { AtomicBool::new(false) }; sys::MPFS_HAL_LAST_HART as usize];
+static SIGNAL_WORK_THREAD_MODE: [AtomicBool; pac::MPFS_HAL_LAST_HART as usize] =
+    [const { AtomicBool::new(false) }; pac::MPFS_HAL_LAST_HART as usize];
 
 #[export_name = "__pender"]
 fn __pender(context: *mut ()) {
@@ -29,7 +29,7 @@ impl Executor {
     /// Create a new Executor.
     pub fn new() -> Self {
         Self {
-            inner: raw::Executor::new((sys::hart_id() - 1) as *mut ()),
+            inner: raw::Executor::new((pac::hart_id() - 1) as *mut ()),
             not_send: PhantomData,
         }
     }
@@ -62,7 +62,7 @@ impl Executor {
         loop {
             unsafe {
                 self.inner.poll();
-                let ctx = sys::hart_id() - 1;
+                let ctx = pac::hart_id() - 1;
                 let mut do_wfi = true;
                 critical_section::with(|_| {
                     // If there is work to do, loop back to polling

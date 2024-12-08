@@ -2,9 +2,10 @@
 
 use core::panic::PanicInfo;
 use core::ptr::addr_of_mut;
-use mpfs_pac as sys;
 
-pub use sys::hart_id;
+pub use mpfs_pac as pac;
+
+pub use pac::hart_id;
 
 mod critical_section_impl;
 critical_section::set_impl!(critical_section_impl::MPFSCriticalSection);
@@ -27,15 +28,15 @@ extern "C" {
 // TODO: Make configurable
 fn init_once() {
     unsafe {
-        sys::mss_config_clk_rst(
-            sys::mss_peripherals__MSS_PERIPH_MMUART0,
-            sys::MPFS_HAL_FIRST_HART as u8,
-            sys::PERIPH_RESET_STATE__PERIPHERAL_ON,
+        pac::mss_config_clk_rst(
+            pac::mss_peripherals__MSS_PERIPH_MMUART0,
+            pac::MPFS_HAL_FIRST_HART as u8,
+            pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
         );
-        sys::MSS_UART_init(
-            addr_of_mut!(sys::g_mss_uart0_lo),
-            sys::MSS_UART_115200_BAUD,
-            sys::MSS_UART_DATA_8_BITS | sys::MSS_UART_NO_PARITY | sys::MSS_UART_ONE_STOP_BIT,
+        pac::MSS_UART_init(
+            addr_of_mut!(pac::g_mss_uart0_lo),
+            pac::MSS_UART_115200_BAUD,
+            pac::MSS_UART_DATA_8_BITS | pac::MSS_UART_NO_PARITY | pac::MSS_UART_ONE_STOP_BIT,
         );
         #[cfg(feature = "alloc")]
         init_heap();
@@ -48,16 +49,16 @@ fn init_once() {
 extern "C" fn u54_1() {
     unsafe {
         // Rest of hardware initialization
-        sys::clear_soft_interrupt();
-        core::arch::asm!("csrs mie, {}", const sys::MIP_MSIP, options(nomem, nostack));
+        pac::clear_soft_interrupt();
+        core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
 
-        sys::PLIC_init();
-        sys::__enable_irq();
+        pac::PLIC_init();
+        pac::__enable_irq();
         init_once();
 
-        sys::raise_soft_interrupt(2);
-        sys::raise_soft_interrupt(3);
-        sys::raise_soft_interrupt(4);
+        pac::raise_soft_interrupt(2);
+        pac::raise_soft_interrupt(3);
+        pac::raise_soft_interrupt(4);
 
         __hart1_entry();
     }
@@ -67,10 +68,10 @@ extern "C" fn u54_1() {
 extern "C" fn u54_2() {
     unsafe {
         // Rest of hardware initialization
-        sys::clear_soft_interrupt();
-        core::arch::asm!("csrs mie, {}", const sys::MIP_MSIP, options(nomem, nostack));
-        sys::PLIC_init();
-        sys::__enable_irq();
+        pac::clear_soft_interrupt();
+        core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
+        pac::PLIC_init();
+        pac::__enable_irq();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -82,10 +83,10 @@ extern "C" fn u54_2() {
 extern "C" fn u54_3() {
     unsafe {
         // Rest of hardware initialization
-        sys::clear_soft_interrupt();
-        core::arch::asm!("csrs mie, {}", const sys::MIP_MSIP, options(nomem, nostack));
-        sys::PLIC_init();
-        sys::__enable_irq();
+        pac::clear_soft_interrupt();
+        core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
+        pac::PLIC_init();
+        pac::__enable_irq();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -97,10 +98,10 @@ extern "C" fn u54_3() {
 extern "C" fn u54_4() {
     unsafe {
         // Rest of hardware initialization
-        sys::clear_soft_interrupt();
-        core::arch::asm!("csrs mie, {}", const sys::MIP_MSIP, options(nomem, nostack));
-        sys::PLIC_init();
-        sys::__enable_irq();
+        pac::clear_soft_interrupt();
+        core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
+        pac::PLIC_init();
+        pac::__enable_irq();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -119,7 +120,7 @@ pub fn uart_puts(s: *const u8) {
 
 pub fn uart_puts_no_lock(s: *const u8) {
     unsafe {
-        sys::MSS_UART_polled_tx_string(addr_of_mut!(sys::g_mss_uart0_lo), s);
+        pac::MSS_UART_polled_tx_string(addr_of_mut!(pac::g_mss_uart0_lo), s);
     }
 }
 

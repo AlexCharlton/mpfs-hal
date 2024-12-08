@@ -1,7 +1,7 @@
 use core::sync::atomic::{compiler_fence, AtomicUsize, Ordering};
 use critical_section::RawRestoreState;
 
-use super::sys::{hart_id, MIP_MSIP};
+use super::pac::{hart_id, MIP_MSIP};
 
 pub struct MPFSCriticalSection;
 

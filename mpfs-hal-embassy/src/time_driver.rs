@@ -7,7 +7,7 @@ use embassy_time_driver::{AlarmHandle, Driver};
 #[cfg(feature = "debug_logs")]
 use mpfs_hal::uart_puts;
 
-use mpfs_pac as sys;
+use mpfs_hal::pac;
 
 // Modelled off https://github.com/embassy-rs/embassy/blob/main/embassy-rp/src/time_driver.rs
 // and https://github.com/polarfire-soc/polarfire-soc-bare-metal-examples/blob/main/driver-examples/mss/mss-timer/mpfs-timer-example/src/application/hart1/u54_1.c
@@ -21,7 +21,7 @@ unsafe impl Send for AlarmState {}
 
 const ALARM_COUNT: usize = 4;
 const TIMER_VS_MTIME_RATIO: u64 =
-    sys::LIBERO_SETTING_MSS_APB_AHB_CLK as u64 / sys::LIBERO_SETTING_MSS_RTC_TOGGLE_CLK as u64;
+    pac::LIBERO_SETTING_MSS_APB_AHB_CLK as u64 / pac::LIBERO_SETTING_MSS_RTC_TOGGLE_CLK as u64;
 
 struct TimeDriver {
     alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
@@ -41,7 +41,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 
 impl Driver for TimeDriver {
     fn now(&self) -> u64 {
-        unsafe { sys::readmtime() }
+        unsafe { pac::readmtime() }
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
@@ -59,7 +59,7 @@ impl Driver for TimeDriver {
             Ok(id) => {
                 critical_section::with(|cs| {
                     let alarms = self.alarms.borrow(cs);
-                    alarms[id as usize].hart.set(sys::hart_id());
+                    alarms[id as usize].hart.set(pac::hart_id());
                 });
                 Some(AlarmHandle::new(id))
             }
@@ -86,7 +86,7 @@ impl Driver for TimeDriver {
                 let msg = alloc::format!(
                     "Setting alarm {} for hart {} (alarm hart {}) to {}\n\0",
                     n,
-                    sys::hart_id(),
+                    pac::hart_id(),
                     alarm.hart.get(),
                     timestamp
                 );
@@ -120,9 +120,9 @@ impl TimeDriver {
         let load_value_u = (counter >> 32) as u32;
         let load_value_l = counter as u32;
         unsafe {
-            sys::MSS_TIM64_load_immediate(sys::TIMER_LO, load_value_u, load_value_l);
-            sys::MSS_TIM64_start(sys::TIMER_LO);
-            sys::MSS_TIM64_enable_irq_for_hart(sys::TIMER_LO, hart_id as u64);
+            pac::MSS_TIM64_load_immediate(pac::TIMER_LO, load_value_u, load_value_l);
+            pac::MSS_TIM64_start(pac::TIMER_LO);
+            pac::MSS_TIM64_enable_irq_for_hart(pac::TIMER_LO, hart_id as u64);
         }
     }
 
@@ -155,7 +155,7 @@ impl TimeDriver {
                     let msg = alloc::format!(
                         "Setting alarm {} from hart {} (alarm hart {}) to {}\n\0",
                         pending_alarm,
-                        sys::hart_id(),
+                        pac::hart_id(),
                         alarm.hart.get(),
                         ts
                     );
@@ -168,14 +168,14 @@ impl TimeDriver {
                 true
             } else {
                 unsafe {
-                    sys::MSS_TIM64_stop(sys::TIMER_LO);
+                    pac::MSS_TIM64_stop(pac::TIMER_LO);
                 }
                 false
             }
         });
 
         unsafe {
-            sys::MSS_TIM64_clear_irq(sys::TIMER_LO);
+            pac::MSS_TIM64_clear_irq(pac::TIMER_LO);
         }
         ret
     }
@@ -191,15 +191,15 @@ pub(crate) unsafe fn init() {
     });
 
     unsafe {
-        sys::mss_config_clk_rst(
-            sys::mss_peripherals__MSS_PERIPH_TIMER,
-            sys::MPFS_HAL_FIRST_HART as u8,
-            sys::PERIPH_RESET_STATE__PERIPHERAL_ON,
+        pac::mss_config_clk_rst(
+            pac::mss_peripherals__MSS_PERIPH_TIMER,
+            pac::MPFS_HAL_FIRST_HART as u8,
+            pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
         );
-        sys::PLIC_SetPriority(sys::PLIC_IRQn_Type_PLIC_TIMER1_INT_OFFSET, 2);
-        sys::PLIC_SetPriority(sys::PLIC_IRQn_Type_PLIC_TIMER2_INT_OFFSET, 2);
-        sys::reset_mtime();
-        sys::MSS_TIM64_init(sys::TIMER_LO, sys::__mss_timer_mode_MSS_TIMER_ONE_SHOT_MODE);
+        pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_TIMER1_INT_OFFSET, 2);
+        pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_TIMER2_INT_OFFSET, 2);
+        pac::reset_mtime();
+        pac::MSS_TIM64_init(pac::TIMER_LO, pac::__mss_timer_mode_MSS_TIMER_ONE_SHOT_MODE);
     }
 }
 
@@ -207,7 +207,7 @@ pub(crate) unsafe fn init() {
 extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
     #[cfg(feature = "debug_logs")]
     {
-        let msg = alloc::format!("Hart {} timer! at {}\n\0", sys::hart_id(), DRIVER.now());
+        let msg = alloc::format!("Hart {} timer! at {}\n\0", pac::hart_id(), DRIVER.now());
         uart_puts(msg.as_ptr());
     }
     let pending = DRIVER.trigger_alarm();
@@ -217,8 +217,8 @@ extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
         uart_puts("returning from timer\n\0".as_ptr());
     }
     return if pending {
-        sys::EXT_IRQ_KEEP_ENABLED
+        pac::EXT_IRQ_KEEP_ENABLED
     } else {
-        sys::EXT_IRQ_DISABLE
+        pac::EXT_IRQ_DISABLE
     } as u8;
 }

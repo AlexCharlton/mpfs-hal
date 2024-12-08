@@ -425,7 +425,6 @@ dependencies = [
  "embassy-time-driver",
  "mpfs-hal",
  "mpfs-hal-procmacros",
- "mpfs-pac",
  "static_cell",
 ]
 
