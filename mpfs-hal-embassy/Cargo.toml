@@ -2,6 +2,15 @@
 name = "mpfs-hal-embassy"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Embassy integration for PolarFire SoC"
+repository = "https://github.com/AlexCharlton/mpfs-hal"
+categories = ["embedded", "hardware-support", "no-std"]
+keywords = ["mpfs", "polarfire", "embassy"]
+
+[package.metadata.docs.rs]
+default-target = "riscv64gc-unknown-none-elf"
+features = []
 
 [features]
 debug_logs = ["mpfs-hal/debug_logs"]

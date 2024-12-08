@@ -2,11 +2,20 @@
 name = "mpfs-pac"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Peripheral Access Crate for PolarFire SoC"
+repository = "https://github.com/AlexCharlton/mpfs-hal"
+categories = ["embedded", "hardware-support", "no-std", "no-std::no-alloc"]
+keywords = ["mpfs", "polarfire", "pac"]
 build = "build.rs"
 
 [lib]
 test = false
 bench = false
+
+[package.metadata.docs.rs]
+default-target = "riscv64gc-unknown-none-elf"
+features = ["beaglev-fire"]
 
 [features]
 default = ["beaglev-fire"]

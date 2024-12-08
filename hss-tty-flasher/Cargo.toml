@@ -2,6 +2,11 @@
 name = "hss-tty-flasher"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "TTY Flasher for PolarFire SoC with HSS bootloader"
+repository = "https://github.com/AlexCharlton/mpfs-hal"
+categories = ["embedded", "command-line-utilities"]
+keywords = ["mpfs", "polarfire"]
 
 [dependencies]
 serialport = "4.2"
