@@ -18,7 +18,7 @@ The RISC-V target can be added using rustup:
 $ rustup target add riscv64gc-unknown-none-elf
 ```
 
-Nightly Rust is used for embassy support.
+Nightly Rust is used for the embassy examples.
 
 ```sh
 $ rustup install nightly
@@ -26,6 +26,13 @@ $ rustup install nightly
 
 Additionally, the only flow tested so far uses HSS as the bootloader. Installing the [HSS Payload Generator](https://git.beagleboard.org/beaglev-fire/hart-software-services/-/tree/main-beaglev-fire/tools/hss-payload-generator) is required.
 
+## Usage
+See the examples:
+```sh
+$ cd examples
+$ cargo build --bin embassy-multicore
+$ hss-tty-flasher COM5 target/riscv64gc-unknown-none-elf/debug/embassy-multicore
+```
 
 ### cargo check
 

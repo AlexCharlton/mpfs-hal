@@ -1,20 +1,19 @@
 {
     "folders": [
         {
-            "name": "MPFS HAL",
             "path": "mpfs-hal"
         },
         {
-            "name": "MPFS PAC",
             "path": "mpfs-pac"
         },
         {
-            "name": "MPFS HAL Embassy",
             "path": "mpfs-hal-embassy"
         },
         {
-            "name": "Examples",
             "path": "examples"
+        },
+        {
+            "path": "mpfs-hal-procmacros"
         },
     ],
     "settings": {

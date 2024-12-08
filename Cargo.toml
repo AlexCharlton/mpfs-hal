@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "mpfs-hal",
     "mpfs-pac",
-    # "mpfs-hal-procmacros",
+    "mpfs-hal-procmacros",
     "mpfs-hal-embassy",
     "examples",
 ]

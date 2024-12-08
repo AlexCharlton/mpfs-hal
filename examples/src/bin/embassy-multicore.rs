@@ -8,20 +8,8 @@ use alloc::{format, vec::Vec};
 use embassy_time::{Instant, Timer};
 use mpfs_hal::{hart_id, uart_puts};
 
-// TODO remove me
-use mpfs_hal_embassy::Executor;
-use static_cell::StaticCell;
-
-#[no_mangle]
-fn __hart1_entry() {
-    static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
-    EXECUTOR1.init(Executor::new()).run(|spawner| {
-        spawner.must_spawn(hart1_task(spawner));
-    });
-}
-
-#[embassy_executor::task]
-async fn hart1_task(_spawner: embassy_executor::Spawner) {
+#[mpfs_hal_embassy::embassy_hart1_main]
+async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let now = Instant::now();
     uart_puts(b"\n\0".as_ptr());
     let msg = format!("Hello World from Rust from hart {}!\n\0", hart_id());
@@ -41,16 +29,8 @@ async fn hart1_task(_spawner: embassy_executor::Spawner) {
     }
 }
 
-#[no_mangle]
-fn __hart2_entry() {
-    static EXECUTOR2: StaticCell<Executor> = StaticCell::new();
-    EXECUTOR2.init(Executor::new()).run(|spawner| {
-        spawner.must_spawn(hart2_task(spawner));
-    });
-}
-
-#[embassy_executor::task]
-async fn hart2_task(_spawner: embassy_executor::Spawner) {
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
     let msg = format!("Hart {} woke up!\n\0", hart_id());
     uart_puts(msg.as_ptr());
     Timer::after_millis(1500).await;
@@ -58,16 +38,8 @@ async fn hart2_task(_spawner: embassy_executor::Spawner) {
     uart_puts(msg.as_ptr());
 }
 
-#[no_mangle]
-fn __hart3_entry() {
-    static EXECUTOR3: StaticCell<Executor> = StaticCell::new();
-    EXECUTOR3.init(Executor::new()).run(|spawner| {
-        spawner.must_spawn(hart3_task(spawner));
-    });
-}
-
-#[embassy_executor::task]
-async fn hart3_task(_spawner: embassy_executor::Spawner) {
+#[mpfs_hal_embassy::embassy_hart3_main]
+async fn hart3_main(_spawner: embassy_executor::Spawner) {
     let msg = format!("Hart {} woke up!\n\0", hart_id());
     uart_puts(msg.as_ptr());
 }

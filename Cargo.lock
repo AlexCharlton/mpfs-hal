@@ -272,7 +272,6 @@ dependencies = [
  "embassy-time",
  "mpfs-hal",
  "mpfs-hal-embassy",
- "static_cell",
 ]
 
 [[package]]
@@ -424,8 +423,18 @@ dependencies = [
  "embassy-time",
  "embassy-time-driver",
  "mpfs-hal",
+ "mpfs-hal-procmacros",
  "mpfs-pac",
  "static_cell",
+]
+
+[[package]]
+name = "mpfs-hal-procmacros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
 ]
 
 [[package]]

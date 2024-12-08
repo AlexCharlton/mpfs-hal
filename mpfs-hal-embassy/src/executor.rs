@@ -2,6 +2,9 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::{raw, Spawner};
 
+#[cfg(feature = "debug_logs")]
+use mpfs_hal::uart_puts;
+
 use mpfs_pac as sys;
 
 static SIGNAL_WORK_THREAD_MODE: [AtomicBool; sys::MPFS_HAL_LAST_HART as usize] =
@@ -12,7 +15,7 @@ fn __pender(context: *mut ()) {
     #[cfg(feature = "debug_logs")]
     {
         let msg = alloc::format!("hart {} has work pending\n\0", context as usize + 1);
-        super::uart_puts(msg.as_ptr());
+        uart_puts(msg.as_ptr());
     }
     SIGNAL_WORK_THREAD_MODE[context as usize].store(true, Ordering::SeqCst);
 }
@@ -68,7 +71,7 @@ impl Executor {
                         #[cfg(feature = "debug_logs")]
                         {
                             let msg = alloc::format!("hart {} has work to do\n\0", ctx + 1);
-                            super::uart_puts(msg.as_ptr());
+                            uart_puts(msg.as_ptr());
                         }
                         SIGNAL_WORK_THREAD_MODE[ctx].store(false, Ordering::SeqCst);
                         do_wfi = false;
@@ -80,13 +83,13 @@ impl Executor {
                     #[cfg(feature = "debug_logs")]
                     {
                         let msg = alloc::format!("hart {} going to wfi\n\0", ctx + 1,);
-                        super::uart_puts(msg.as_ptr());
+                        uart_puts(msg.as_ptr());
                     }
                     core::arch::asm!("wfi");
                     #[cfg(feature = "debug_logs")]
                     {
                         let msg = alloc::format!("hart {} wfi\n\0", ctx + 1);
-                        super::uart_puts(msg.as_ptr());
+                        uart_puts(msg.as_ptr());
                     }
                 }
                 // if an interrupt occurred while waiting, it will be serviced here

@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-debug_logs = []
+debug_logs = ["mpfs-hal/debug_logs"]
 
 [dependencies]
-mpfs-hal = { path = "../mpfs-hal" }
+mpfs-hal = { path = "../mpfs-hal", features = [] }
 mpfs-pac = { path = "../mpfs-pac" }
+mpfs-hal-procmacros = { path = "../mpfs-hal-procmacros", features = [
+    "embassy",
+] }
 
 critical-section = { workspace = true }
 embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git", features = [

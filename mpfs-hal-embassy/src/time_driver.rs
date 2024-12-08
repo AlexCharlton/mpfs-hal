@@ -4,6 +4,9 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 
+#[cfg(feature = "debug_logs")]
+use mpfs_hal::uart_puts;
+
 use mpfs_pac as sys;
 
 // Modelled off https://github.com/embassy-rs/embassy/blob/main/embassy-rp/src/time_driver.rs
@@ -87,7 +90,7 @@ impl Driver for TimeDriver {
                     alarm.hart.get(),
                     timestamp
                 );
-                super::uart_puts(msg.as_ptr());
+                uart_puts(msg.as_ptr());
             }
 
             let current_alarm = &alarms[self.current_alarm.load(Ordering::Acquire) as usize];
@@ -101,7 +104,7 @@ impl Driver for TimeDriver {
             }
             #[cfg(feature = "debug_logs")]
             {
-                super::uart_puts("Setting alarm\n\0".as_ptr());
+                uart_puts("Setting alarm\n\0".as_ptr());
             }
             let diff = timestamp - now;
             self._set_alarm(diff, alarm.hart.get());
@@ -156,7 +159,7 @@ impl TimeDriver {
                         alarm.hart.get(),
                         ts
                     );
-                    super::uart_puts(msg.as_ptr());
+                    uart_puts(msg.as_ptr());
                 }
                 let interval = if ts < now { 0 } else { ts - now };
                 self._set_alarm(interval, alarm.hart.get());
@@ -205,13 +208,13 @@ extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
     #[cfg(feature = "debug_logs")]
     {
         let msg = alloc::format!("Hart {} timer! at {}\n\0", sys::hart_id(), DRIVER.now());
-        super::uart_puts(msg.as_ptr());
+        uart_puts(msg.as_ptr());
     }
     let pending = DRIVER.trigger_alarm();
 
     #[cfg(feature = "debug_logs")]
     {
-        super::uart_puts("returning from timer\n\0".as_ptr());
+        uart_puts("returning from timer\n\0".as_ptr());
     }
     return if pending {
         sys::EXT_IRQ_KEEP_ENABLED

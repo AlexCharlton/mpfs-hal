@@ -1,0 +1,16 @@
+[package]
+name = "mpfs-hal-procmacros"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[lib]
+proc-macro = true
+
+[features]
+embassy = []
