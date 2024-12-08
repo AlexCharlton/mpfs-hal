@@ -6,15 +6,25 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 > This repository is an early work in progress. There is not much HAL to speak of. Only the BeagleV-Fire is currently supported, but additional board support should be fairly straightforward.
 
 **Primary crates**:
-- `mpfs-hal`: [critical_section](https://github.com/rust-embedded/critical-section), [embedded-alloc](https://github.com/rust-embedded/embedded-alloc), integration. [embedded-hal](https://github.com/rust-embedded/embedded-hal) support intended.
-- `mpfs-hal-embassy`: Embassy integration, with an Executor and Time Driver, supporting multicore with timer interrupts for low-power application.
-- `mpfs-pac`: A peripheral access crate for the PolarFire SoC.
+
+`mpfs-hal` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal)](https://crates.io/crates/mpfs-hal) [![Docs.rs](https://docs.rs/mpfs-hal/badge.svg)](https://docs.rs/mpfs-hal)<br />
+[critical_section](https://github.com/rust-embedded/critical-section), [embedded-alloc](https://github.com/rust-embedded/embedded-alloc), integration. [embedded-hal](https://github.com/rust-embedded/embedded-hal) support intended.
+
+`mpfs-hal-embassy` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal-embassy)](https://crates.io/crates/mpfs-hal-embassy) [![Docs.rs](https://docs.rs/mpfs-hal-embassy/badge.svg)](https://docs.rs/mpfs-hal-embassy)<br />
+Embassy integration, with an Executor and Time Driver, supporting multicore with timer interrupts for low-power application.
+
+`mpfs-pac` | [![Crates.io](https://img.shields.io/crates/v/mpfs-pac)](https://crates.io/crates/mpfs-pac) [![Docs.rs](https://docs.rs/mpfs-pac/badge.svg)](https://docs.rs/mpfs-pac)<br />
+A peripheral access crate for the PolarFire SoC.
 
 **Utility crates**:
-- `hss-tty-flasher`: A TTY interface that allows you to flash ELF files to PolarFire SoC devices using the HSS bootloader.
+
+`hss-tty-flasher` | [![Crates.io](https://img.shields.io/crates/v/hss-tty-flasher)](https://crates.io/crates/hss-tty-flasher)<br />
+A TTY interface that allows you to flash ELF files to PolarFire SoC devices using the HSS bootloader.
 
 **Internal crates**:
-- `mpfs-hal-procmacros`: Reexported by `mpfs-hal` and `mpfs-hal-embassy`. Sugar for defining entry points.
+
+`mpfs-hal-procmacros`<br />
+Reexported by `mpfs-hal` and `mpfs-hal-embassy`. Sugar for defining entry points.
 
 
 ## Prerequisites
@@ -43,7 +53,7 @@ See the examples:
 ```sh
 $ cd examples
 $ cargo build --bin embassy-multicore
-$ hss-tty-flasher COM5 target/riscv64gc-unknown-none-elf/debug/embassy-multicore
+$ hss-tty-flasher COM5 ../target/riscv64gc-unknown-none-elf/debug/embassy-multicore
 ```
 
 Your application's `.cargo/config.toml` should specify both the target and the linker file:
