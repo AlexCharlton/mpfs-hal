@@ -9,5 +9,5 @@ mpfs-hal = { path = "../mpfs-hal", features = ["alloc"] }
 embassy-time = { version = "0.3", git = "https://github.com/embassy-rs/embassy.git" }
 mpfs-hal-embassy = { path = "../mpfs-hal-embassy", features = [] }
 embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git", features = [
-    "nightly",
+    "task-arena-size-8192",
 ] }

@@ -1,19 +1,7 @@
 {
     "folders": [
         {
-            "path": "mpfs-hal"
-        },
-        {
-            "path": "mpfs-pac"
-        },
-        {
-            "path": "mpfs-hal-embassy"
-        },
-        {
             "path": "examples"
-        },
-        {
-            "path": "mpfs-hal-procmacros"
         },
     ],
     "settings": {
