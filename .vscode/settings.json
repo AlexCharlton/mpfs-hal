@@ -2,6 +2,10 @@
     "rust-analyzer.cargo.target": "riscv64gc-unknown-none-elf",
     "rust-analyzer.check.allTargets": false,
     "rust-analyzer.linkedProjects": [
-        "examples/Cargo.toml",
+        "examples/Cargo.toml"
+    ],
+    "rust-analyzer.cargo.extraArgs": [
+        "--config",
+        "target.riscv64gc-unknown-none-elf.rustflags=[\"-C\", \"link-arg=-Tlinker.ld\", \"-C\", \"link-arg=--gc-sections\"]"
     ]
 }
