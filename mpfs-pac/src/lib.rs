@@ -11,6 +11,9 @@ pub use clint::*;
 mod encoding;
 pub use encoding::*;
 
+mod gpio;
+pub use gpio::*;
+
 mod timer;
 pub use timer::*;
 
