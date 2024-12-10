@@ -11,3 +11,4 @@ mpfs-hal-embassy = { path = "../mpfs-hal-embassy", features = [] }
 embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git", features = [
     "task-arena-size-8192",
 ] }
+embedded-io = "0.6"

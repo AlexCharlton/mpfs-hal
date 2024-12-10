@@ -3,44 +3,58 @@
 
 extern crate alloc;
 
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 use embassy_time::{Instant, Timer};
-use mpfs_hal::{hart_id, uart_puts};
+use embedded_io::Write;
+use mpfs_hal::{hart_id, uart};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
+    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
     let now = Instant::now();
-    uart_puts(b"\n\0".as_ptr());
-    let msg = format!("Hello World from Rust from hart {}!\n\0", hart_id());
-    uart_puts(msg.as_ptr());
+    uart.write_all(b"\n").unwrap();
+    uart.write_fmt(format_args!(
+        "Hello World from Rust from hart {}!\n",
+        hart_id()
+    ))
+    .unwrap();
 
     let mut xs = Vec::new();
     xs.push(1);
 
-    let msg = format!("Got value {} from the heap!\n\0", xs.pop().unwrap());
-    uart_puts(msg.as_ptr());
+    uart.write_fmt(format_args!(
+        "Got value {} from the heap!\n",
+        xs.pop().unwrap()
+    ))
+    .unwrap();
 
     loop {
         let elapsed = Instant::now() - now;
-        let msg = format!("{} ms\n\0", elapsed.as_millis());
-        uart_puts(msg.as_ptr());
+        uart.write_fmt(format_args!("{} ms\n", elapsed.as_millis()))
+            .unwrap();
         Timer::after_millis(1000).await;
     }
 }
 
 #[mpfs_hal_embassy::embassy_hart2_main]
 async fn hart2_main(_spawner: embassy_executor::Spawner) {
-    let msg = format!("Hart {} woke up!\n\0", hart_id());
-    uart_puts(msg.as_ptr());
+    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
+    uart.write_fmt(format_args!("Hart {} woke up!\n", hart_id()))
+        .unwrap();
     Timer::after_millis(1500).await;
-    let msg = format!("Hart {} again at {}\n\0", hart_id(), Instant::now());
-    uart_puts(msg.as_ptr());
+    uart.write_fmt(format_args!(
+        "Hart {} again at {}\n",
+        hart_id(),
+        Instant::now()
+    ))
+    .unwrap();
 }
 
 #[mpfs_hal_embassy::embassy_hart3_main]
 async fn hart3_main(_spawner: embassy_executor::Spawner) {
-    let msg = format!("Hart {} woke up!\n\0", hart_id());
-    uart_puts(msg.as_ptr());
+    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
+    uart.write_fmt(format_args!("Hart {} woke up!\n", hart_id()))
+        .unwrap();
 }
 
 #[panic_handler]

@@ -17,6 +17,11 @@ pub use alloc::init_heap;
 
 pub use mpfs_hal_procmacros::{hart1_main, hart2_main, hart3_main, hart4_main};
 
+pub mod uart;
+
+//----------------------------------------------------------
+// Entry points
+
 extern "C" {
     fn __init_once();
     fn __hart1_entry();
@@ -112,34 +117,19 @@ extern "C" fn u54_4() {
 
 //------------------------------------------------------------------------------------
 
-pub fn uart_puts(s: *const u8) {
-    critical_section::with(|_| {
-        uart_puts_no_lock(s);
-    });
-}
-
-pub fn uart_puts_no_lock(s: *const u8) {
-    unsafe {
-        pac::MSS_UART_polled_tx_string(addr_of_mut!(pac::g_mss_uart0_lo), s);
-    }
-}
-
 pub fn uart_print_panic(panic: &PanicInfo<'_>) {
+    use embedded_io::Write;
+    use uart::*;
+
     // Print panic message if available
     if let Some(location) = panic.location() {
         // We shouldn't rely on alloc/critical section while panicking
-        uart_puts_no_lock(b"\nPANIC at\0".as_ptr());
-        uart_puts_no_lock(location.file().as_bytes().as_ptr());
-        uart_puts_no_lock(b":\0".as_ptr());
-        // Convert number to string
-        let mut line_buf = [0u8; 10];
-        let mut buf = itoa::Buffer::new();
-        let num_str = buf.format(location.line());
-
-        // Copy to our null-terminated buffer
-        for (i, &byte) in num_str.as_bytes().iter().enumerate() {
-            line_buf[i] = byte;
-        }
-        uart_puts_no_lock(line_buf.as_ptr());
+        let mut uart = Uart::new(Peripheral::Uart0, UartConfig::default());
+        uart.write_fmt(format_args!(
+            "PANIC at {}:{}",
+            location.file(),
+            location.line()
+        ))
+        .unwrap();
     }
 }

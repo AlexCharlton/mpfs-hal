@@ -270,6 +270,7 @@ version = "0.0.0"
 dependencies = [
  "embassy-executor",
  "embassy-time",
+ "embedded-io",
  "mpfs-hal",
  "mpfs-hal-embassy",
 ]
@@ -351,12 +352,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itoa"
-version = "1.0.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
-
-[[package]]
 name = "libc"
 version = "0.2.167"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -408,7 +403,7 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "embedded-alloc",
- "itoa",
+ "embedded-io",
  "mpfs-hal-procmacros",
  "mpfs-pac",
  "riscv",

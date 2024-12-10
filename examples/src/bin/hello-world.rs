@@ -1,16 +1,21 @@
 #![no_std]
 #![no_main]
 
-use mpfs_hal;
+use embedded_io::Write;
+use mpfs_hal::uart;
 
 #[mpfs_hal::hart1_main]
 pub fn hart1_main() {
-    mpfs_hal::uart_puts(b"Hello World from Rust from hart 1!\n\0".as_ptr());
+    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
+    uart.write_fmt(format_args!("Hello World from Rust from hart 1!\n"))
+        .unwrap();
 }
 
 #[mpfs_hal::hart2_main]
 pub fn hart2_main() {
-    mpfs_hal::uart_puts(b"Hello World from Rust from hart 2!\n\0".as_ptr());
+    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
+    uart.write_fmt(format_args!("Hello World from Rust from hart 2!\n"))
+        .unwrap();
 }
 
 #[panic_handler]

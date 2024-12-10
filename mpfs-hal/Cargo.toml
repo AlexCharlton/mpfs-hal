@@ -14,7 +14,7 @@ features = ["alloc"]
 
 [features]
 debug_logs = []
-alloc = ["embedded-alloc"]
+alloc = ["embedded-alloc", "embedded-io/alloc"]
 
 [dependencies]
 mpfs-pac = { version = "0.1", path = "../mpfs-pac" }
@@ -22,5 +22,5 @@ mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros" }
 
 critical-section = { workspace = true }
 embedded-alloc = { version = "0.6", optional = true }
+embedded-io = { version = "0.6" }
 riscv = "0.12"
-itoa = "1.0"
