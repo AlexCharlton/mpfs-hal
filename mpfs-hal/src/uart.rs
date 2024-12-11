@@ -1,23 +1,32 @@
 use crate::pac;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Peripheral {
-    Uart0,
-    Uart1,
-    Uart2,
-    Uart3,
-    Uart4,
+pub trait UartPeripheral {
+    fn address(&self) -> *mut pac::mss_uart_instance_t;
 }
 
-impl Peripheral {
+pub struct UART0 {}
+static mut UART0_TAKEN: bool = false;
+
+impl crate::Peripheral for UART0 {
+    fn take() -> Option<Self> {
+        critical_section::with(|_| unsafe {
+            if UART0_TAKEN {
+                None
+            } else {
+                UART0_TAKEN = true;
+                Some(Self {})
+            }
+        })
+    }
+
+    unsafe fn steal() -> Self {
+        Self {}
+    }
+}
+
+impl UartPeripheral for UART0 {
     fn address(&self) -> *mut pac::mss_uart_instance_t {
-        match self {
-            Peripheral::Uart0 => core::ptr::addr_of_mut!(pac::g_mss_uart0_lo),
-            Peripheral::Uart1 => core::ptr::addr_of_mut!(pac::g_mss_uart1_lo),
-            Peripheral::Uart2 => core::ptr::addr_of_mut!(pac::g_mss_uart2_lo),
-            Peripheral::Uart3 => core::ptr::addr_of_mut!(pac::g_mss_uart3_lo),
-            Peripheral::Uart4 => core::ptr::addr_of_mut!(pac::g_mss_uart4_lo),
-        }
+        core::ptr::addr_of_mut!(pac::g_mss_uart0_lo)
     }
 }
 
@@ -99,23 +108,23 @@ impl embedded_io::Error for Error {
     }
 }
 
-pub struct Uart {
-    peripheral: Peripheral,
+pub struct Uart<'a, T: UartPeripheral> {
+    peripheral: &'a mut T,
     config: UartConfig,
 }
 
-impl Uart {
-    pub fn new(peripheral: Peripheral, config: UartConfig) -> Self {
+impl<'a, T: UartPeripheral> Uart<'a, T> {
+    pub fn new(peripheral: &'a mut T, config: UartConfig) -> Self {
         // TODO Init
         Self { peripheral, config }
     }
 }
 
-impl embedded_io::ErrorType for Uart {
+impl<T: UartPeripheral> embedded_io::ErrorType for Uart<'_, T> {
     type Error = Error;
 }
 
-impl embedded_io::Write for Uart {
+impl<T: UartPeripheral> embedded_io::Write for Uart<'_, T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         // TODO buffered writing
         unsafe {

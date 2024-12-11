@@ -17,6 +17,9 @@ pub use alloc::init_heap;
 
 pub use mpfs_hal_procmacros::{hart1_main, hart2_main, hart3_main, hart4_main};
 
+mod peripheral;
+pub use peripheral::Peripheral;
+
 pub mod uart;
 
 //----------------------------------------------------------
@@ -124,12 +127,15 @@ pub fn uart_print_panic(panic: &PanicInfo<'_>) {
     // Print panic message if available
     if let Some(location) = panic.location() {
         // We shouldn't rely on alloc/critical section while panicking
-        let mut uart = Uart::new(Peripheral::Uart0, UartConfig::default());
-        uart.write_fmt(format_args!(
-            "PANIC at {}:{}",
-            location.file(),
-            location.line()
-        ))
-        .unwrap();
+        unsafe {
+            let mut uart0 = UART0::steal();
+            let mut uart = Uart::new(&mut uart0, UartConfig::default());
+            uart.write_fmt(format_args!(
+                "PANIC at {}:{}",
+                location.file(),
+                location.line()
+            ))
+            .unwrap();
+        }
     }
 }
