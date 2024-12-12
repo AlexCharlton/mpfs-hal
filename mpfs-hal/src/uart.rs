@@ -1,38 +1,66 @@
 use crate::pac;
+use paste::paste;
 
 pub trait UartPeripheral {
     fn address(&self) -> *mut pac::mss_uart_instance_t;
     fn number(&self) -> u8;
 }
 
-pub struct UART0 {}
-static mut UART0_TAKEN: bool = false;
+//-------------------------------------------------------------------
+// Create the UART peripherals
 
-impl crate::Peripheral for UART0 {
-    fn take() -> Option<Self> {
-        critical_section::with(|_| unsafe {
-            if UART0_TAKEN {
-                None
-            } else {
-                UART0_TAKEN = true;
-                Some(Self {})
+macro_rules! impl_uart {
+    ($n:expr) => {
+        paste! {
+            impl_uart!([<UART $n>], [<UART $n _TAKEN>], $n, [<g_mss_uart $n _lo>]);
+        }
+    };
+
+    // E.g. impl_uart!(UART0, UART0_TAKEN, 0, g_mss_uart_0_lo);
+    ($UART:ident, $UART_TAKEN:ident, $num:expr, $instance:ident) => {
+        pub struct $UART {}
+        static mut $UART_TAKEN: bool = false;
+
+        impl crate::Peripheral for $UART {
+            fn take() -> Option<Self> {
+                critical_section::with(|_| unsafe {
+                    if $UART_TAKEN {
+                        None
+                    } else {
+                        $UART_TAKEN = true;
+                        Some(Self {})
+                    }
+                })
             }
-        })
-    }
 
-    unsafe fn steal() -> Self {
-        Self {}
-    }
+            unsafe fn steal() -> Self {
+                Self {}
+            }
+        }
+
+        impl UartPeripheral for $UART {
+            fn address(&self) -> *mut pac::mss_uart_instance_t {
+                core::ptr::addr_of_mut!(pac::$instance)
+            }
+
+            fn number(&self) -> u8 {
+                $num
+            }
+        }
+    };
 }
 
-impl UartPeripheral for UART0 {
-    fn address(&self) -> *mut pac::mss_uart_instance_t {
-        core::ptr::addr_of_mut!(pac::g_mss_uart0_lo)
-    }
-    fn number(&self) -> u8 {
-        0
-    }
+macro_rules! impl_uarts {
+    ($($n:expr),*) => {
+        $(impl_uart!($n);)*
+    };
 }
+
+// Generates UART0, UART1, UART2, UART3, UART4
+impl_uarts!(0, 1, 2, 3, 4);
+
+//-------------------------------------------------------------------
+// Configs
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UartConfig {
@@ -149,23 +177,7 @@ impl Parity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Error {
-    InvalidParam,
-    NoError,
-    OverrunError,
-    ParityError,
-    FramingError,
-    BreakError,
-    FifoError,
-}
-
-impl embedded_io::Error for Error {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
-    }
-}
-
+//-------------------------------------------------------------------
 pub struct Uart<T: UartPeripheral> {
     peripheral: T,
 }
@@ -185,6 +197,15 @@ impl<T: UartPeripheral> Uart<T> {
             );
         });
         Self { peripheral }
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {}
+
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
     }
 }
 
