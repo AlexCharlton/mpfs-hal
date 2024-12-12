@@ -31,6 +31,6 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    mpfs_hal::uart_print_panic(info);
+    mpfs_hal::print_panic(info);
     loop {}
 }

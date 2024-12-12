@@ -10,11 +10,13 @@ keywords = ["mpfs", "polarfire", "hal", "embedded-hal"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64gc-unknown-none-elf"
-features = ["alloc"]
+features = ["alloc", "print"]
 
 [features]
-debug_logs = []
+default = ["alloc", "print"]
+debug_logs = ["print"]
 alloc = ["embedded-alloc", "embedded-io/alloc"]
+print = []
 
 [dependencies]
 mpfs-pac = { version = "0.1", path = "../mpfs-pac" }

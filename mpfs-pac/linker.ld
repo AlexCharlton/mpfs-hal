@@ -108,6 +108,7 @@ STACK_SIZE_U54_4_APPLICATION = 2M;
 /* Weakly linked functions */
 
 PROVIDE(__init_once = DefaultInitOnce);
+PROVIDE(__init_once_embassy = DefaultInitOnceEmbassy);
 PROVIDE(__hart1_entry = DefaultHart1Entry);
 PROVIDE(__hart2_entry = DefaultHart2Entry);
 PROVIDE(__hart3_entry = DefaultHart3Entry);

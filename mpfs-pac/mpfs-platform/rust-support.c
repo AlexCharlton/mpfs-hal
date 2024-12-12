@@ -1,4 +1,5 @@
 void DefaultInitOnce(void) {}
+void DefaultInitOnceEmbassy(void) {}
 
 void DefaultHart1Entry(void)
 {

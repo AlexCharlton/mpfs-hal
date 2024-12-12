@@ -78,6 +78,20 @@ pub fn hart4_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     expanded.into()
 }
 
+#[proc_macro_attribute]
+pub fn init_once(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    let fn_body = &input_fn.block;
+    let expanded = quote! {
+        #[no_mangle]
+        pub fn __init_once() {
+            #fn_body
+        }
+    };
+
+    expanded.into()
+}
+
 //-------------------------------------------------------------
 // Embassy macros
 /*

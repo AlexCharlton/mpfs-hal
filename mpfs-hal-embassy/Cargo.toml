@@ -13,6 +13,7 @@ default-target = "riscv64gc-unknown-none-elf"
 features = []
 
 [features]
+default = []
 debug_logs = ["mpfs-hal/debug_logs"]
 
 [dependencies]

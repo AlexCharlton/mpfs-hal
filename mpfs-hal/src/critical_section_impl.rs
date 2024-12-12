@@ -5,10 +5,10 @@ use super::pac::{hart_id, MIP_MSIP};
 
 pub struct MPFSCriticalSection;
 
-pub const LOCK_UNOWNED: usize = 0;
+const LOCK_UNOWNED: usize = 0;
 
 // Stores which hart (core) owns the lock: 0 = unowned, 1-4 = hart ID
-pub static LOCK_OWNER: AtomicUsize = AtomicUsize::new(LOCK_UNOWNED);
+static LOCK_OWNER: AtomicUsize = AtomicUsize::new(LOCK_UNOWNED);
 
 #[repr(u8)]
 enum RestoreState {
@@ -69,13 +69,11 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
 
         #[cfg(feature = "debug_logs")]
         {
-            super::uart_puts_no_lock(b"hart\0".as_ptr());
-            super::uart_puts_no_lock([48 + hart_id as u8, 0].as_ptr());
-            super::uart_puts_no_lock(b" acquired\0".as_ptr());
+            crate::print_unguarded!("hart {} acquired", hart_id);
             if was_enabled {
-                super::uart_puts_no_lock(b" (restore interrupts: true)\n\0".as_ptr());
+                crate::println_unguarded!(" (restore interrupts: true)\n");
             } else {
-                super::uart_puts_no_lock(b" (restore: false)\n\0".as_ptr());
+                crate::println_unguarded!(" (restore: false)\n");
             }
         }
 
@@ -96,9 +94,7 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
 
         #[cfg(feature = "debug_logs")]
         {
-            super::uart_puts_no_lock(b"hart\0".as_ptr());
-            super::uart_puts_no_lock([48 + hart_id() as u8, 0].as_ptr());
-            super::uart_puts_no_lock(b" releasing\n\0".as_ptr());
+            crate::println_unguarded!("hart {} releasing\n", hart_id());
         }
 
         // Release the lock

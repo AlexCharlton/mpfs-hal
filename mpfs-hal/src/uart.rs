@@ -2,6 +2,7 @@ use crate::pac;
 
 pub trait UartPeripheral {
     fn address(&self) -> *mut pac::mss_uart_instance_t;
+    fn number(&self) -> u8;
 }
 
 pub struct UART0 {}
@@ -27,6 +28,9 @@ impl crate::Peripheral for UART0 {
 impl UartPeripheral for UART0 {
     fn address(&self) -> *mut pac::mss_uart_instance_t {
         core::ptr::addr_of_mut!(pac::g_mss_uart0_lo)
+    }
+    fn number(&self) -> u8 {
+        0
     }
 }
 
@@ -67,12 +71,44 @@ pub enum BaudRate {
     Baud921600,
 }
 
+impl BaudRate {
+    pub fn value(&self) -> u32 {
+        match self {
+            BaudRate::Baud110 => pac::MSS_UART_110_BAUD,
+            BaudRate::Baud300 => pac::MSS_UART_300_BAUD,
+            BaudRate::Baud600 => pac::MSS_UART_600_BAUD,
+            BaudRate::Baud1200 => pac::MSS_UART_1200_BAUD,
+            BaudRate::Baud2400 => pac::MSS_UART_2400_BAUD,
+            BaudRate::Baud4800 => pac::MSS_UART_4800_BAUD,
+            BaudRate::Baud9600 => pac::MSS_UART_9600_BAUD,
+            BaudRate::Baud19200 => pac::MSS_UART_19200_BAUD,
+            BaudRate::Baud38400 => pac::MSS_UART_38400_BAUD,
+            BaudRate::Baud57600 => pac::MSS_UART_57600_BAUD,
+            BaudRate::Baud115200 => pac::MSS_UART_115200_BAUD,
+            BaudRate::Baud230400 => pac::MSS_UART_230400_BAUD,
+            BaudRate::Baud460800 => pac::MSS_UART_460800_BAUD,
+            BaudRate::Baud921600 => pac::MSS_UART_921600_BAUD,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DataBits {
     Data5,
     Data6,
     Data7,
     Data8,
+}
+
+impl DataBits {
+    pub fn value(&self) -> u8 {
+        match self {
+            DataBits::Data5 => pac::MSS_UART_DATA_5_BITS,
+            DataBits::Data6 => pac::MSS_UART_DATA_6_BITS,
+            DataBits::Data7 => pac::MSS_UART_DATA_7_BITS,
+            DataBits::Data8 => pac::MSS_UART_DATA_8_BITS,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -82,6 +118,16 @@ pub enum StopBits {
     Two,
 }
 
+impl StopBits {
+    pub fn value(&self) -> u8 {
+        match self {
+            StopBits::One => pac::MSS_UART_ONE_STOP_BIT,
+            StopBits::OneHalf => pac::MSS_UART_ONEHALF_STOP_BIT,
+            StopBits::Two => pac::MSS_UART_TWO_STOP_BITS,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Parity {
     NoParity,
@@ -89,6 +135,18 @@ pub enum Parity {
     EvenParity,
     StickParity0,
     StickParity1,
+}
+
+impl Parity {
+    pub fn value(&self) -> u8 {
+        match self {
+            Parity::NoParity => pac::MSS_UART_NO_PARITY,
+            Parity::OddParity => pac::MSS_UART_ODD_PARITY,
+            Parity::EvenParity => pac::MSS_UART_EVEN_PARITY,
+            Parity::StickParity0 => pac::MSS_UART_STICK_PARITY_0,
+            Parity::StickParity1 => pac::MSS_UART_STICK_PARITY_1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -108,23 +166,33 @@ impl embedded_io::Error for Error {
     }
 }
 
-pub struct Uart<'a, T: UartPeripheral> {
-    peripheral: &'a mut T,
-    config: UartConfig,
+pub struct Uart<T: UartPeripheral> {
+    peripheral: T,
 }
 
-impl<'a, T: UartPeripheral> Uart<'a, T> {
-    pub fn new(peripheral: &'a mut T, config: UartConfig) -> Self {
-        // TODO Init
-        Self { peripheral, config }
+impl<T: UartPeripheral> Uart<T> {
+    pub fn new(peripheral: T, config: UartConfig) -> Self {
+        critical_section::with(|_| unsafe {
+            pac::mss_config_clk_rst(
+                peripheral.number() as u32,
+                pac::MPFS_HAL_FIRST_HART as u8,
+                pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
+            );
+            pac::MSS_UART_init(
+                peripheral.address(),
+                config.baud_rate.value(),
+                config.data_bits.value() | config.parity.value() | config.stop_bits.value(),
+            );
+        });
+        Self { peripheral }
     }
 }
 
-impl<T: UartPeripheral> embedded_io::ErrorType for Uart<'_, T> {
+impl<T: UartPeripheral> embedded_io::ErrorType for Uart<T> {
     type Error = Error;
 }
 
-impl<T: UartPeripheral> embedded_io::Write for Uart<'_, T> {
+impl<T: UartPeripheral> embedded_io::Write for Uart<T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         // TODO buffered writing
         unsafe {

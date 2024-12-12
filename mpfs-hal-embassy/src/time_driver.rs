@@ -4,9 +4,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 
-#[cfg(feature = "debug_logs")]
-use mpfs_hal::uart_puts;
-
 use mpfs_hal::pac;
 
 // Modelled off https://github.com/embassy-rs/embassy/blob/main/embassy-rp/src/time_driver.rs
@@ -82,16 +79,13 @@ impl Driver for TimeDriver {
             let alarm = &alarms[n];
             alarm.timestamp.set(timestamp);
             #[cfg(feature = "debug_logs")]
-            {
-                let msg = alloc::format!(
-                    "Setting alarm {} for hart {} (alarm hart {}) to {}\n\0",
-                    n,
-                    pac::hart_id(),
-                    alarm.hart.get(),
-                    timestamp
-                );
-                uart_puts(msg.as_ptr());
-            }
+            mpfs_hal::print_unguarded!(
+                "Setting alarm {} for hart {} (alarm hart {}) to {}",
+                n,
+                pac::hart_id(),
+                alarm.hart.get(),
+                timestamp
+            );
 
             let current_alarm = &alarms[self.current_alarm.load(Ordering::Acquire) as usize];
             if timestamp > current_alarm.timestamp.get() || timestamp == u64::MAX {
@@ -103,9 +97,8 @@ impl Driver for TimeDriver {
                 return false; // Already expired
             }
             #[cfg(feature = "debug_logs")]
-            {
-                uart_puts("Setting alarm\n\0".as_ptr());
-            }
+            mpfs_hal::print_unguarded!("Setting alarm\n");
+
             let diff = timestamp - now;
             self._set_alarm(diff, alarm.hart.get());
             self.current_alarm.store(n as u8, Ordering::Release);
@@ -151,16 +144,13 @@ impl TimeDriver {
                 let alarm = &alarms[pending_alarm];
                 let ts = alarm.timestamp.get();
                 #[cfg(feature = "debug_logs")]
-                {
-                    let msg = alloc::format!(
-                        "Setting alarm {} from hart {} (alarm hart {}) to {}\n\0",
-                        pending_alarm,
-                        pac::hart_id(),
-                        alarm.hart.get(),
-                        ts
-                    );
-                    uart_puts(msg.as_ptr());
-                }
+                mpfs_hal::print_unguarded!(
+                    "Setting alarm {} from hart {} (alarm hart {}) to {}\n",
+                    pending_alarm,
+                    pac::hart_id(),
+                    alarm.hart.get(),
+                    ts
+                );
                 let interval = if ts < now { 0 } else { ts - now };
                 self._set_alarm(interval, alarm.hart.get());
                 self.current_alarm
@@ -206,16 +196,13 @@ pub(crate) unsafe fn init() {
 #[no_mangle]
 extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
     #[cfg(feature = "debug_logs")]
-    {
-        let msg = alloc::format!("Hart {} timer! at {}\n\0", pac::hart_id(), DRIVER.now());
-        uart_puts(msg.as_ptr());
-    }
+    mpfs_hal::print_unguarded!("Hart {} timer! at {}", pac::hart_id(), DRIVER.now());
+
     let pending = DRIVER.trigger_alarm();
 
     #[cfg(feature = "debug_logs")]
-    {
-        uart_puts("returning from timer\n\0".as_ptr());
-    }
+    mpfs_hal::print_unguarded!("returning from timer");
+
     return if pending {
         pac::EXT_IRQ_KEEP_ENABLED
     } else {

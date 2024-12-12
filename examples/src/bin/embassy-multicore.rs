@@ -3,62 +3,48 @@
 
 extern crate alloc;
 
+#[macro_use]
+extern crate mpfs_hal;
+
 use alloc::vec::Vec;
 use embassy_time::{Instant, Timer};
-use embedded_io::Write;
-use mpfs_hal::{hart_id, uart};
+use mpfs_hal::hart_id;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
-    let now = Instant::now();
-    uart.write_all(b"\n").unwrap();
-    uart.write_fmt(format_args!(
-        "Hello World from Rust from hart {}!\n",
-        hart_id()
-    ))
-    .unwrap();
+    println!("Hello World from Rust from hart {}!", hart_id());
 
     let mut xs = Vec::new();
     xs.push(1);
+    println!("Got value {} from the heap!", xs.pop().unwrap());
 
-    uart.write_fmt(format_args!(
-        "Got value {} from the heap!\n",
-        xs.pop().unwrap()
-    ))
-    .unwrap();
-
+    let now = Instant::now();
     loop {
         let elapsed = Instant::now() - now;
-        uart.write_fmt(format_args!("{} ms\n", elapsed.as_millis()))
-            .unwrap();
+        println!("{} ms", elapsed.as_millis());
         Timer::after_millis(1000).await;
     }
 }
 
 #[mpfs_hal_embassy::embassy_hart2_main]
 async fn hart2_main(_spawner: embassy_executor::Spawner) {
-    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
-    uart.write_fmt(format_args!("Hart {} woke up!\n", hart_id()))
-        .unwrap();
+    println!("Hart {} woke up!", hart_id());
     Timer::after_millis(1500).await;
-    uart.write_fmt(format_args!(
-        "Hart {} again at {}\n",
-        hart_id(),
-        Instant::now()
-    ))
-    .unwrap();
+    println!("Hart {} again at {}", hart_id(), Instant::now());
 }
 
 #[mpfs_hal_embassy::embassy_hart3_main]
 async fn hart3_main(_spawner: embassy_executor::Spawner) {
-    let mut uart = uart::Uart::new(uart::Peripheral::Uart0, uart::UartConfig::default());
-    uart.write_fmt(format_args!("Hart {} woke up!\n", hart_id()))
-        .unwrap();
+    println!("Hart {} woke up!", hart_id());
+}
+
+#[mpfs_hal::init_once]
+fn init_once() {
+    println!("This gets run before (almost) anything else...");
 }
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    mpfs_hal::uart_print_panic(info);
+    mpfs_hal::print_panic(info);
     loop {}
 }
