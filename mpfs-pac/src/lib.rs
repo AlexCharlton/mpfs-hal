@@ -14,6 +14,9 @@ pub use encoding::*;
 mod gpio;
 pub use gpio::*;
 
+mod sysreg;
+pub use sysreg::*;
+
 mod timer;
 pub use timer::*;
 
