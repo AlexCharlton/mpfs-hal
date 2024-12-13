@@ -29,12 +29,10 @@ fn main() {
             let path = e.path();
             let is_c_file = path.extension().map_or(false, |ext| ext == "c");
             let path_str = path.to_string_lossy().replace('\\', "/");
-            let in_mss = path_str.contains("mpfs-platform/platform/drivers/mss");
-            let in_allowed_mss = path_str.contains("mss_uart")
-                || path_str.contains("mss_gpio")
-                || path_str.contains("mss_timer");
+            let in_fpga_ip = path_str.contains("mpfs-platform/platform/drivers/fpga_ip");
+            let mss_skip = path_str.contains("mss_ethernet_mac") || path_str.contains("mss_spi");
 
-            is_c_file && (!in_mss || in_allowed_mss)
+            is_c_file && !in_fpga_ip && !mss_skip
         })
         .map(|e| e.path().to_owned())
         .collect();
