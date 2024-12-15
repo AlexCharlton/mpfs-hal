@@ -59,7 +59,12 @@ macro_rules! print {
 
 pub fn print_panic(panic: &PanicInfo<'_>) {
     if let Some(location) = panic.location() {
-        println!("PANIC at {}:{}", location.file(), location.line());
+        println!(
+            "PANIC at {}:{}: {}",
+            location.file(),
+            location.line(),
+            panic.message()
+        );
     }
 }
 
