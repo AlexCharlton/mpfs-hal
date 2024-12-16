@@ -7,6 +7,7 @@ use crossterm::{
 };
 use std::env;
 use std::io::{self, Read, Write};
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -298,16 +299,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
     let port_name = &args[1];
-    let elf_path = if args.len() == 3 {
+    let file_path = if args.len() == 3 {
         Some(&args[2])
     } else {
         None
     };
 
     let mut mode = Mode::Terminal;
-    if elf_path.is_none() {
-        println!("No ELF specified. Flash mode will not be available.");
+    if file_path.is_none() {
+        println!("No ELF/Image specified. Flash mode will not be available.");
         mode = Mode::TerminalOnly;
+    } else {
+        if !Path::new(file_path.unwrap()).exists() {
+            eprintln!("ELF/Image {:?} does not exist", file_path.unwrap());
+            std::process::exit(1);
+        }
     }
 
     let port = setup_serial_port(port_name)?;
@@ -360,15 +366,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let drive_to_flash = new_drive.clone();
                 flash_state = FlashState::Flashing;
                 state_tx.send(flash_state)?;
+                let image_path = if !file_path.unwrap().ends_with(".img") {
+                    log_writer.write_all(
+                        format!("Converting ELF {:?} to image\n", file_path.unwrap()).as_bytes(),
+                    )?;
+                    image_gen::generate_hss_payload(file_path.unwrap())?
+                } else {
+                    file_path.unwrap().to_string()
+                };
                 log_writer.write_all(
                     format!(
-                        "Flashing ELF {:?} to drive {:?}\n",
-                        elf_path.unwrap(),
-                        drive_to_flash
+                        "Flashing Image {:?} to drive {:?}\n",
+                        image_path, drive_to_flash
                     )
                     .as_bytes(),
                 )?;
-                let image_path = image_gen::generate_hss_payload(elf_path.unwrap())?;
+
                 flash_image_to_drive(&image_path, &drive_to_flash, &mut log_writer)?;
                 eject_drive(&drive_to_flash)?;
                 log_writer.write_all(format!("Drive ejected\n").as_bytes())?;

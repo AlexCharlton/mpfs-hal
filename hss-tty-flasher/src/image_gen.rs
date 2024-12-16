@@ -4,11 +4,12 @@ use std::process::Command;
 
 pub fn generate_hss_payload(elf_path: &str) -> std::io::Result<String> {
     let path = Path::new(elf_path);
+    let elf_name = path.file_name().unwrap().to_str().unwrap();
     let file_name = path.file_stem().unwrap().to_str().unwrap();
     let dir = path.parent().unwrap_or(Path::new("."));
 
     // Create the yaml content using the CONFIG template
-    let yaml_content = CONFIG.replace("{}", file_name);
+    let yaml_content = CONFIG.replace("{}", elf_name);
     let yaml_filename = format!("{}-image-conf.yaml", file_name);
     let yaml_path = dir.join(&yaml_filename);
     fs::write(&yaml_path, yaml_content)?;
