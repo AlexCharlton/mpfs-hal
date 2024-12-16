@@ -173,9 +173,9 @@ IOMUX structure */
 #endif
 #if !defined (LIBERO_SETTING_MSSIO_BANK4_IO_CFG_6_7_CR)
 /*IO electrical configuration for MSSIO pad */
-#define LIBERO_SETTING_MSSIO_BANK4_IO_CFG_6_7_CR    0x09300928UL
+#define LIBERO_SETTING_MSSIO_BANK4_IO_CFG_6_7_CR    0x09280928UL
     /* IO_CFG_6                          [0:16]  RW value= 0x0928 */
-    /* IO_CFG_7                          [16:16] RW value= 0x0930 */
+    /* IO_CFG_7                          [16:16] RW value= 0x0928 */
 #endif
 #if !defined (LIBERO_SETTING_MSSIO_BANK4_IO_CFG_8_9_CR)
 /*IO electrical configuration for MSSIO pad */
@@ -325,9 +325,9 @@ implies default is SD). The eMMC configuration is always defined in xml tag
 (io_mux, the SD configuration is always defined in xml tag (io_mux_alt). All
 other elements in the (o_mux) and (io_mux_alt) not releating to eMMC/SD
 differences should be the same values. */
-#define LIBERO_SETTING_MSSIO_CONFIGURATION_OPTIONS    0x00000003UL
+#define LIBERO_SETTING_MSSIO_CONFIGURATION_OPTIONS    0x00000001UL
     /* EMMC_CONFIGURED                   [0:1]   RW value= 0x1 */
-    /* SD_CONFIGURED                     [1:1]   RW value= 0x1 */
+    /* SD_CONFIGURED                     [1:1]   RW value= 0x0 */
     /* DEFAULT_ON_START                  [2:1]   RW value= 0x0 */
 #endif
 #if !defined (LIBERO_SETTING_GPIO_INTERRUPT_FAB_CR)

@@ -54,9 +54,9 @@ extern  "C" {
 #if !defined (LIBERO_SETTING_CONFIGURED_PERIPHERALS)
 /*MSS peripherals configured in this instance of MSS Configurator generated
 output. 1 implies it has been configured, 0 it has not been configured. */
-#define LIBERO_SETTING_CONFIGURED_PERIPHERALS    0x000FFFFFUL
+#define LIBERO_SETTING_CONFIGURED_PERIPHERALS    0x000FFFFDUL
     /* EMMC                              [0:1]   RW value= 0x1 */
-    /* SD_SDIO                           [1:1]   RW value= 0x1 */
+    /* SD_SDIO                           [1:1]   RW value= 0x0 */
     /* USB                               [2:1]   RW value= 0x1 */
     /* MAC0                              [3:1]   RW value= 0x1 */
     /* MAC1                              [4:1]   RW value= 0x1 */
