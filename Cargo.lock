@@ -12,6 +12,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "aligned"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "377e4c0ba83e4431b10df45c1d4666f178ea9c552cac93e60c3a88bf32785923"
+dependencies = [
+ "as-slice",
+]
+
+[[package]]
+name = "as-slice"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "516b6b4f0e40d50dcda9365d53964ec74560ad4284da2e7fc97122cd83174516"
+dependencies = [
+ "stable_deref_trait",
+]
+
+[[package]]
 name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -42,6 +60,14 @@ name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
+
+[[package]]
+name = "block-device-driver"
+version = "0.2.0"
+source = "git+https://github.com/MabezDev/embedded-fatfs.git#428ad03cee555d9636f061d7bca7a62c4889cc63"
+dependencies = [
+ "aligned",
+]
 
 [[package]]
 name = "byteorder"
@@ -170,6 +196,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-futures"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f878075b9794c1e4ac788c95b728f26aa6366d32eeb10c7051389f898f7d067"
+
+[[package]]
 name = "embassy-sync"
 version = "0.6.1"
 source = "git+https://github.com/embassy-rs/embassy.git#86578acaa4d4dbed06ed4fcecec25884f6883e82"
@@ -270,9 +302,12 @@ version = "0.0.0"
 dependencies = [
  "embassy-executor",
  "embassy-time",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "embedded-io",
  "mpfs-hal",
  "mpfs-hal-embassy",
+ "sdspi",
 ]
 
 [[package]]
@@ -604,6 +639,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "sdio-host"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b328e2cb950eeccd55b7f55c3a963691455dcd044cfb5354f0c5e68d2c2d6ee2"
+
+[[package]]
+name = "sdspi"
+version = "0.1.0"
+source = "git+https://github.com/MabezDev/embedded-fatfs.git#428ad03cee555d9636f061d7bca7a62c4889cc63"
+dependencies = [
+ "aligned",
+ "block-device-driver",
+ "embassy-futures",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "sdio-host",
 ]
 
 [[package]]

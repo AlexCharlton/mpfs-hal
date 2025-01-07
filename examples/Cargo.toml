@@ -12,3 +12,8 @@ embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embas
     "task-arena-size-8192",
 ] }
 embedded-io = "0.6"
+
+# SD example
+sdspi = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git" }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
