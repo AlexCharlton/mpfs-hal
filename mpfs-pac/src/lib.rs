@@ -23,6 +23,9 @@ pub use timer::*;
 mod uart;
 pub use uart::*;
 
+mod qspi;
+pub use qspi::*;
+
 #[inline]
 pub fn hart_id() -> usize {
     let mut hart_id: usize;

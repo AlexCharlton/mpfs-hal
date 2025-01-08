@@ -6,25 +6,26 @@ extern crate alloc;
 #[macro_use]
 extern crate mpfs_hal;
 
-use alloc::vec;
+use embedded_hal_async::spi::SpiBus;
 use mpfs_hal::pac;
-use sdspi::sd_init;
+// use sdspi::sd_init;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     println!("Hello");
 
-    let mut spi = SdSpi {};
-    let mut cs = SdCs {};
-    loop {
-        match sd_init(&mut spi, &mut cs).await {
-            Ok(_) => break,
-            Err(e) => {
-                println!("Sd init error: {:?}", e);
-                embassy_time::Timer::after_millis(10).await;
-            }
-        }
-    }
+    let mut spi = Qspi {};
+    // let mut cs = SdCs {};
+    // loop {
+    //     match sd_init(&mut spi, &mut cs).await {
+    //         Ok(_) => break,
+    //         Err(e) => {
+    //             println!("Sd init error: {:?}", e);
+    //             embassy_time::Timer::after_millis(10).await;
+    //         }
+    //     }
+    // }
+    spi.write(&[0xFF; 10]).await.unwrap();
     println!("Sd init complete");
 
     // let spi_bus = SPI_BUS.init(Mutex::new(spi));
@@ -90,9 +91,9 @@ fn config() {
     println!("Config complete");
 }
 
-struct SdCs {}
+struct SdChipSelect {}
 
-impl embedded_hal::digital::OutputPin for SdCs {
+impl embedded_hal::digital::OutputPin for SdChipSelect {
     fn set_low(&mut self) -> Result<(), Self::Error> {
         unsafe {
             pac::MSS_GPIO_set_output(pac::GPIO0_LO, pac::mss_gpio_id_MSS_GPIO_12, 0);
@@ -107,13 +108,13 @@ impl embedded_hal::digital::OutputPin for SdCs {
     }
 }
 
-impl embedded_hal::digital::ErrorType for SdCs {
+impl embedded_hal::digital::ErrorType for SdChipSelect {
     type Error = core::convert::Infallible;
 }
 
-struct SdSpi {}
+struct Qspi {}
 
-impl embedded_hal::spi::ErrorType for SdSpi {
+impl embedded_hal::spi::ErrorType for Qspi {
     type Error = SdError;
 }
 
@@ -126,39 +127,343 @@ impl embedded_hal::spi::Error for SdError {
     }
 }
 
-impl embedded_hal_async::spi::SpiBus<u8> for SdSpi {
-    async fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        self.transfer(words, &[]).await?;
-        Ok(())
-    }
-    async fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.transfer(&mut [], words).await?;
+impl embedded_hal::spi::SpiBus<u8> for Qspi {
+    fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        unsafe {
+            // Wait until QSPI is ready
+            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+                core::hint::spin_loop();
+            }
+
+            // Disable interrupts
+            (*pac::QSPI).INTENABLE = 0;
+
+            // Configure frame size
+            let total_bytes = words.len();
+            (*pac::QSPI).FRAMESUP = (total_bytes as u32) & pac::FRMS_UBYTES_MASK;
+
+            // Configure frame control
+            let mut frame_ctrl = (total_bytes as u32) & 0xFFFF;
+            frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
+            frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
+
+            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            (*pac::QSPI).FRAMES = frame_ctrl;
+
+            // Enable 32-bit transfer mode
+            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+
+            // Transfer 32-bit aligned words
+            let words_32 = words.as_ptr() as *mut u32;
+            let word_count = total_bytes / 4;
+
+            for i in 0..word_count {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                // Send dummy data
+                (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+
+                // Wait until receive FIFO is not empty
+                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                *words_32.add(i) = (*pac::QSPI).RXDATAX4;
+            }
+
+            // Disable 32-bit transfer mode
+            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+            pac::sleep_ms(10);
+
+            // Transfer remaining bytes
+            let remaining_start = word_count * 4;
+            for i in remaining_start..total_bytes {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                // Send dummy data
+                (*pac::QSPI).TXDATAX1 = 0xFF;
+
+                // Wait until receive FIFO is not empty
+                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                words[i] = (*pac::QSPI).RXDATAX1;
+            }
+            // Make sure the read is complete (but we shouldn't get here)
+            while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
+                println!("Warning: read not complete");
+                if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
+                    (*pac::QSPI).RXDATAX4;
+                } else {
+                    (*pac::QSPI).RXDATAX1;
+                }
+            }
+        }
         Ok(())
     }
 
-    // TODO create a decent implementation of this
-    async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-        // println!("transfering: {:?}", write);
+    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         unsafe {
-            pac::MSS_QSPI_polled_transfer_block(
-                3,
-                write.as_ptr() as *const core::ffi::c_void,
-                (write.len() as u32).saturating_sub(3 + 1), // Address bytes + 1 byte for the command
-                read.as_mut_ptr() as *mut core::ffi::c_void,
-                read.len() as u32,
-                0,
-            );
+            // Wait until QSPI is ready
+            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+                core::hint::spin_loop();
+            }
+
+            // Disable interrupts
+            (*pac::QSPI).INTENABLE = 0;
+
+            // Configure frame size
+            let total_bytes = words.len();
+            (*pac::QSPI).FRAMESUP = (total_bytes as u32) & pac::FRMS_UBYTES_MASK;
+
+            // Configure frame control
+            let mut frame_ctrl = (total_bytes as u32) & 0xFFFF;
+            frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
+            frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
+
+            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            (*pac::QSPI).FRAMES = frame_ctrl;
+
+            // Enable 32-bit transfer mode
+            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+
+            // Transfer 32-bit aligned words
+            let words_32 = words.as_ptr() as *const u32;
+            let word_count = total_bytes / 4;
+
+            for i in 0..word_count {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                (*pac::QSPI).TXDATAX4 = *words_32.add(i);
+            }
+
+            // Disable 32-bit transfer mode
+            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+            pac::sleep_ms(10);
+
+            // Transfer remaining bytes
+            let remaining_start = word_count * 4;
+            for i in remaining_start..total_bytes {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                (*pac::QSPI).TXDATAX1 = words[i];
+            }
         }
-        println!("read from transfer: {:?}", read);
         Ok(())
     }
+
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+        unsafe {
+            // Wait until QSPI is ready
+            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+                core::hint::spin_loop();
+            }
+
+            // Disable interrupts
+            (*pac::QSPI).INTENABLE = 0;
+
+            // Configure frame size
+            let total_bytes = read.len().max(write.len());
+            (*pac::QSPI).FRAMESUP = (total_bytes as u32) & pac::FRMS_UBYTES_MASK;
+
+            // Configure frame control
+            let mut frame_ctrl = (total_bytes as u32) & 0xFFFF;
+            frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
+            frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
+
+            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            (*pac::QSPI).FRAMES = frame_ctrl;
+
+            // Enable 32-bit transfer mode
+            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+
+            // Transfer 32-bit aligned words
+            let write_32 = write.as_ptr() as *const u32;
+            let read_32 = read.as_ptr() as *mut u32;
+            let word_count = total_bytes / 4;
+            let tx_word_count = write.len() / 4;
+            let rx_word_count = read.len() / 4;
+
+            for i in 0..word_count {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                if i < tx_word_count {
+                    // Write data
+                    (*pac::QSPI).TXDATAX4 = *write_32.add(i);
+                } else {
+                    // Send dummy data
+                    (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+                }
+
+                // Wait until receive FIFO is not empty
+                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                if i < rx_word_count {
+                    *read_32.add(i) = (*pac::QSPI).RXDATAX4;
+                } else {
+                    (*pac::QSPI).RXDATAX1; // discard
+                }
+            }
+
+            // Disable 32-bit transfer mode
+            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+            pac::sleep_ms(10);
+
+            // Transfer remaining bytes
+            let remaining_start = word_count * 4;
+            for i in remaining_start..total_bytes {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                if i < write.len() {
+                    // Write data
+                    (*pac::QSPI).TXDATAX1 = write[i];
+                } else {
+                    // Send dummy data
+                    (*pac::QSPI).TXDATAX1 = 0xFF;
+                }
+
+                // Wait until receive FIFO is not empty
+                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                if i < read.len() {
+                    read[i] = (*pac::QSPI).RXDATAX1;
+                } else {
+                    (*pac::QSPI).RXDATAX1; // discard
+                }
+            }
+            // Make sure the read is complete (but we shouldn't get here)
+            while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
+                println!("Warning: read not complete");
+                if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
+                    (*pac::QSPI).RXDATAX4;
+                } else {
+                    (*pac::QSPI).RXDATAX1;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        unsafe {
+            // Wait until QSPI is ready
+            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+                core::hint::spin_loop();
+            }
+
+            // Disable interrupts
+            (*pac::QSPI).INTENABLE = 0;
+
+            // Configure frame size
+            let total_bytes = words.len();
+            (*pac::QSPI).FRAMESUP = (total_bytes as u32) & pac::FRMS_UBYTES_MASK;
+
+            // Configure frame control
+            let mut frame_ctrl = (total_bytes as u32) & 0xFFFF;
+            frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
+            frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
+
+            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            (*pac::QSPI).FRAMES = frame_ctrl;
+
+            // Enable 32-bit transfer mode
+            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+
+            // Transfer 32-bit aligned words
+            let words_32 = words.as_ptr() as *mut u32;
+            let word_count = total_bytes / 4;
+
+            for i in 0..word_count {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                (*pac::QSPI).TXDATAX4 = *words_32.add(i);
+
+                // Wait until receive FIFO is not empty
+                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                *words_32.add(i) = (*pac::QSPI).RXDATAX4;
+            }
+
+            // Disable 32-bit transfer mode
+            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+            pac::sleep_ms(10);
+
+            // Transfer remaining bytes
+            let remaining_start = word_count * 4;
+            for i in remaining_start..total_bytes {
+                // Wait until transmit FIFO is not full
+                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                (*pac::QSPI).TXDATAX1 = words[i];
+
+                // Wait until receive FIFO is not empty
+                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    core::hint::spin_loop();
+                }
+                words[i] = (*pac::QSPI).RXDATAX1;
+            }
+            // Make sure the read is complete (but we shouldn't get here)
+            while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
+                println!("Warning: read not complete");
+                if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
+                    (*pac::QSPI).RXDATAX4;
+                } else {
+                    (*pac::QSPI).RXDATAX1;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+// TODO: Create an async implementation
+impl embedded_hal_async::spi::SpiBus<u8> for Qspi {
+    async fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        embedded_hal::spi::SpiBus::read(self, words)
+    }
+
+    async fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        embedded_hal::spi::SpiBus::write(self, words)
+    }
+
+    async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+        embedded_hal::spi::SpiBus::transfer(self, read, write)
+    }
+
     async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        let mut read = vec![0u8; words.len()];
-        self.transfer(&mut read, words).await?;
-        words.copy_from_slice(&read[..words.len()]);
-        Ok(())
+        embedded_hal::spi::SpiBus::transfer_in_place(self, words)
     }
+
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        embedded_hal::spi::SpiBus::flush(self)
     }
 }
