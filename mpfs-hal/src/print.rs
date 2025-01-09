@@ -27,6 +27,7 @@ impl Printer {
 
 impl core::fmt::Write for Printer {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        #[allow(static_mut_refs)]
         let uart = unsafe { UART.as_mut().unwrap() };
         uart.write(s.as_bytes()).unwrap();
         Ok(())
@@ -74,6 +75,7 @@ impl core::fmt::Write for UnguardedPrinter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         unsafe {
             // If the UART is not initialized, do nothing
+            #[allow(static_mut_refs)]
             if UART.is_none() {
                 return Ok(());
             }
