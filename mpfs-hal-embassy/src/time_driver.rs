@@ -1,8 +1,9 @@
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_time_driver::Driver;
+use embassy_time_queue_utils::Queue;
 
 use mpfs_hal::pac;
 
@@ -11,8 +12,6 @@ use mpfs_hal::pac;
 
 struct AlarmState {
     timestamp: Cell<u64>,
-    hart: Cell<usize>,
-    callback: Cell<Option<(fn(*mut ()), *mut ())>>,
 }
 unsafe impl Send for AlarmState {}
 
@@ -21,19 +20,17 @@ const TIMER_VS_MTIME_RATIO: u64 =
     pac::LIBERO_SETTING_MSS_APB_AHB_CLK as u64 / pac::LIBERO_SETTING_MSS_RTC_TOGGLE_CLK as u64;
 
 struct TimeDriver {
-    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
+    queues: Mutex<CriticalSectionRawMutex, RefCell<[Queue; 4]>>,
+    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; 4]>,
     current_alarm: AtomicU8,
-    next_alarm: AtomicU8,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
+    queues: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new([const{Queue::new()}; 4])),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [const{AlarmState {
         timestamp: Cell::new(0),
-        hart: Cell::new(0),
-        callback: Cell::new(None),
     }}; ALARM_COUNT]),
-    current_alarm: AtomicU8::new(0),
-    next_alarm: AtomicU8::new(0),
+    current_alarm: AtomicU8::new(0), // Index of the current alarm (i.e. hart_id - 1)
 });
 
 impl Driver for TimeDriver {
@@ -41,94 +38,96 @@ impl Driver for TimeDriver {
         unsafe { pac::readmtime() }
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self
-            .next_alarm
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if x < ALARM_COUNT as u8 {
-                    Some(x + 1)
-                } else {
-                    None
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
+        critical_section::with(|cs| {
+            let mut queues = self.queues.borrow(cs).borrow_mut();
+            let queue = &mut queues[pac::hart_id() as usize - 1];
+
+            #[cfg(feature = "debug_logs")]
+            mpfs_hal::print_unguarded!("schedule wake for hart {} at {}\n", pac::hart_id(), at);
+
+            if queue.schedule_wake(at, waker) {
+                let mut next = queue.next_expiration(self.now());
+                while !self.set_alarm(cs, next, pac::hart_id() as usize) {
+                    next = queue.next_expiration(self.now());
                 }
-            });
-
-        match id {
-            Ok(id) => {
-                critical_section::with(|cs| {
-                    let alarms = self.alarms.borrow(cs);
-                    alarms[id as usize].hart.set(pac::hart_id());
-                });
-                Some(AlarmHandle::new(id))
             }
-            Err(_) => None,
-        }
-    }
-
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        let n = alarm.id() as usize;
-        critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
-            alarm.callback.set(Some((callback, ctx)));
-        })
-    }
-
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        let n = alarm.id() as usize;
-        critical_section::with(|cs| {
-            let alarms = &self.alarms.borrow(cs);
-            let alarm = &alarms[n];
-            alarm.timestamp.set(timestamp);
-            #[cfg(feature = "debug_logs")]
-            mpfs_hal::print_unguarded!(
-                "Setting alarm {} for hart {} (alarm hart {}) to {}",
-                n,
-                pac::hart_id(),
-                alarm.hart.get(),
-                timestamp
-            );
-
-            let current_alarm = &alarms[self.current_alarm.load(Ordering::Acquire) as usize];
-            if timestamp > current_alarm.timestamp.get() || timestamp == u64::MAX {
-                return true; // We have another alarm that will trigger first
-            }
-            let now = self.now();
-            if timestamp <= now {
-                alarm.timestamp.set(u64::MAX);
-                return false; // Already expired
-            }
-            #[cfg(feature = "debug_logs")]
-            mpfs_hal::print_unguarded!("Setting alarm\n");
-
-            let diff = timestamp - now;
-            self._set_alarm(diff, alarm.hart.get());
-            self.current_alarm.store(n as u8, Ordering::Release);
-            true
         })
     }
 }
 
 impl TimeDriver {
-    fn _set_alarm(&self, interval: u64, hart_id: usize) {
-        let counter = interval * TIMER_VS_MTIME_RATIO;
+    // Returns false if the alarm is already expired, otherwise true
+    fn set_alarm(
+        &self,
+        cs: critical_section::CriticalSection,
+        timestamp: u64,
+        hart_id: usize,
+    ) -> bool {
+        let alarms = &self.alarms.borrow(cs);
+        let alarm = &alarms[hart_id - 1];
+        alarm.timestamp.set(timestamp);
+        #[cfg(feature = "debug_logs")]
+        mpfs_hal::print_unguarded!("Setting alarm for hart {} to {}\n", hart_id, timestamp,);
+
+        let current_alarm = &alarms[self.current_alarm.load(Ordering::Acquire) as usize];
+        if timestamp > current_alarm.timestamp.get() || timestamp == u64::MAX {
+            return true; // We have another alarm that will trigger first
+        }
+        let now = self.now();
+        if timestamp <= now {
+            #[cfg(feature = "debug_logs")]
+            mpfs_hal::print_unguarded!("Alarm already expired\n");
+            alarm.timestamp.set(u64::MAX);
+            return false; // Already expired
+        }
+        self.current_alarm
+            .store(hart_id as u8 - 1, Ordering::Release);
+        if timestamp == u64::MAX {
+            #[cfg(feature = "debug_logs")]
+            mpfs_hal::print_unguarded!("Alarm set to max\n");
+            return true; // The alarm is "set" (but it will never trigger, since it's set to max)
+        }
+        #[cfg(feature = "debug_logs")]
+        mpfs_hal::print_unguarded!("Setting alarm\n");
+
+        let diff = timestamp - now;
+        self._set_alarm(diff);
+        true
+    }
+
+    fn _set_alarm(&self, interval: u64) {
+        let counter = interval.saturating_mul(TIMER_VS_MTIME_RATIO);
         let load_value_u = (counter >> 32) as u32;
         let load_value_l = counter as u32;
         unsafe {
             pac::MSS_TIM64_load_immediate(pac::TIMER_LO, load_value_u, load_value_l);
             pac::MSS_TIM64_start(pac::TIMER_LO);
-            pac::MSS_TIM64_enable_irq_for_hart(pac::TIMER_LO, hart_id as u64);
+            pac::MSS_TIM64_enable_irq(pac::TIMER_LO);
         }
     }
 
     // Returns true if there is a pending alarm
     fn trigger_alarm(&self) -> bool {
         let ret = critical_section::with(|cs| {
-            let now = self.now();
+            let mut queues = self.queues.borrow(cs).borrow_mut();
+
+            // Dequeue the current alarm
             let alarms = self.alarms.borrow(cs);
-            let alarm = &alarms[self.current_alarm.load(Ordering::Acquire) as usize];
+            let current_alarm = self.current_alarm.load(Ordering::Acquire) as usize;
+            let alarm = &alarms[current_alarm];
             alarm.timestamp.set(u64::MAX);
-            if let Some((f, ctx)) = alarm.callback.get() {
-                f(ctx);
+            let queue = &mut queues[current_alarm];
+            let mut next = queue.next_expiration(self.now());
+            unsafe {
+                // Since it has work to do, wake up the hart corresponding to the current alarm
+                pac::raise_soft_interrupt(current_alarm + 1);
             }
+            while !self.set_alarm(cs, next, current_alarm + 1) {
+                next = queue.next_expiration(self.now());
+            }
+
+            // Find the next alarm to set
             let mut pending_alarm: Option<usize> = None;
             for i in 0..ALARM_COUNT {
                 let ts = alarms[i].timestamp.get();
@@ -140,19 +139,20 @@ impl TimeDriver {
                 }
             }
 
+            // Set the next alarm, if there is one
             if let Some(pending_alarm) = pending_alarm {
                 let alarm = &alarms[pending_alarm];
                 let ts = alarm.timestamp.get();
                 #[cfg(feature = "debug_logs")]
                 mpfs_hal::print_unguarded!(
-                    "Setting alarm {} from hart {} (alarm hart {}) to {}\n",
+                    "Setting alarm {} from hart {} to {}\n",
                     pending_alarm,
                     pac::hart_id(),
-                    alarm.hart.get(),
                     ts
                 );
+                let now = self.now();
                 let interval = if ts < now { 0 } else { ts - now };
-                self._set_alarm(interval, alarm.hart.get());
+                self._set_alarm(interval);
                 self.current_alarm
                     .store(pending_alarm as u8, Ordering::Release);
                 true
@@ -163,7 +163,6 @@ impl TimeDriver {
                 false
             }
         });
-
         unsafe {
             pac::MSS_TIM64_clear_irq(pac::TIMER_LO);
         }
@@ -196,12 +195,12 @@ pub(crate) unsafe fn init() {
 #[no_mangle]
 extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
     #[cfg(feature = "debug_logs")]
-    mpfs_hal::print_unguarded!("Hart {} timer! at {}", pac::hart_id(), DRIVER.now());
+    mpfs_hal::print_unguarded!("Hart {} timer! at {}\n", pac::hart_id(), DRIVER.now());
 
     let pending = DRIVER.trigger_alarm();
 
     #[cfg(feature = "debug_logs")]
-    mpfs_hal::print_unguarded!("returning from timer");
+    mpfs_hal::print_unguarded!("returning from timer\n");
 
     return if pending {
         pac::EXT_IRQ_KEEP_ENABLED

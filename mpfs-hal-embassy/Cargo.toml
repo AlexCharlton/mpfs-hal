@@ -23,13 +23,9 @@ mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros", featur
 ] }
 
 critical-section = { workspace = true }
-embassy-executor = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git", features = [
-    "executor-thread",
-    "integrated-timers",
-] }
-embassy-time = { version = "0.3", git = "https://github.com/embassy-rs/embassy.git" }
-embassy-time-driver = { version = "0.1", git = "https://github.com/embassy-rs/embassy.git", features = [
-    "tick-hz-1_000_000",
-] }
-embassy-sync = { version = "0.6", git = "https://github.com/embassy-rs/embassy.git" }
+embassy-executor = { version = "0.7", features = ["executor-thread"] }
+embassy-time = { version = "0.4" }
+embassy-time-driver = { version = "0.2", features = ["tick-hz-1_000_000"] }
+embassy-time-queue-utils = { version = "0.1" }
+embassy-sync = { version = "0.6" }
 static_cell = "2.1"

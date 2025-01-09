@@ -47,10 +47,6 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        unsafe {
-            self.inner.initialize();
-        }
-
         init(self.inner.spawner());
 
         loop {
@@ -63,7 +59,7 @@ impl Executor {
                     // TODO can we relax this?
                     if SIGNAL_WORK_THREAD_MODE[ctx].load(Ordering::SeqCst) {
                         #[cfg(feature = "debug_logs")]
-                        mpfs_hal::println_unguarded!("hart {} has work to do", ctx + 1);
+                        mpfs_hal::println_unguarded!("hart {} has work to do\n", ctx + 1);
                         SIGNAL_WORK_THREAD_MODE[ctx].store(false, Ordering::SeqCst);
                         do_wfi = false;
                     }
@@ -72,10 +68,10 @@ impl Executor {
                 // This is not in the critical section, since we want to release the critical-section lock
                 if do_wfi {
                     #[cfg(feature = "debug_logs")]
-                    mpfs_hal::println_unguarded!("hart {} going to wfi", ctx + 1);
+                    mpfs_hal::println_unguarded!("hart {} going to wfi\n", ctx + 1);
                     core::arch::asm!("wfi");
                     #[cfg(feature = "debug_logs")]
-                    mpfs_hal::println_unguarded!("hart {} wfi", ctx + 1);
+                    mpfs_hal::println_unguarded!("hart {} wfi\n", ctx + 1);
                 }
                 // if an interrupt occurred while waiting, it will be serviced here
             }
