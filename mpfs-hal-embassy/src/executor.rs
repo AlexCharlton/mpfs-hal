@@ -12,6 +12,9 @@ fn __pender(context: *mut ()) {
     #[cfg(feature = "debug_logs")]
     mpfs_hal::println_unguarded!("hart {} has work pending\n", context as usize + 1);
     SIGNAL_WORK_THREAD_MODE[context as usize].store(true, Ordering::SeqCst);
+    unsafe {
+        pac::raise_soft_interrupt(context as usize + 1);
+    }
 }
 
 pub struct Executor {
