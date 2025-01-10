@@ -14,7 +14,5 @@ pub use static_cell;
 
 #[no_mangle]
 fn __init_once_embassy() {
-    unsafe {
-        time_driver::init();
-    }
+    time_driver::init();
 }

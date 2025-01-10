@@ -36,22 +36,17 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
     let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
     let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
-    loop {
-        // Initialize the card
-        if sd.init().await.is_ok() {
-            // Increase the speed up to the SD max of 25mhz
 
-            let mut config = SpiConfig::default();
-            config.frequency = SpiFrequency::F25_000_000;
-            sd.spi().set_config(config);
-            println!("Initialization complete!");
-
-            break;
-        }
+    while sd.init().await.is_err() {
         println!("Failed to init card, retrying...");
         embassy_time::Timer::after_millis(500).await;
     }
-    println!("Ready");
+    // Increase the speed up to the SD max of 25mhz
+    let mut config = SpiConfig::default();
+    config.frequency = SpiFrequency::F25_000_000;
+    sd.spi().set_config(config);
+
+    println!("Initialization complete!");
 }
 
 #[panic_handler]
@@ -62,6 +57,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 #[mpfs_hal::init_once]
 fn config() {
+    mpfs_hal::init_logger(log::LevelFilter::Trace);
     unsafe {
         pac::mss_config_clk_rst(
             pac::mss_peripherals__MSS_PERIPH_CFM,
@@ -84,7 +80,7 @@ fn config() {
 
         pac::MSS_QSPI_init();
     }
-    println!("Config complete");
+    log::info!("Config complete");
 }
 
 struct SdChipSelect {}
@@ -189,7 +185,7 @@ impl SetConfig for Qspi {
 
 impl embedded_hal::spi::SpiBus<u8> for Qspi {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        println!("read");
+        log::debug!("read");
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -257,7 +253,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             }
             // Make sure the read is complete (but we shouldn't get here)
             while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
-                println!("Warning: read not complete");
+                log::warn!("Warning: read not complete");
                 if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
                     (*pac::QSPI).RXDATAX4;
                 } else {
@@ -265,12 +261,12 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        println!("read {:x?}", words);
+        log::debug!("read {:x?}", words);
         Ok(())
     }
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        println!("write {:x?}", words);
+        log::debug!("write {:x?}", words);
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -327,7 +323,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
     }
 
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-        println!("transfer {:x?}", write);
+        log::debug!("transfer {:x?}", write);
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -416,7 +412,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             }
             // Make sure the read is complete (but we shouldn't get here)
             while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
-                println!("Warning: read not complete");
+                log::warn!("Warning: read not complete");
                 if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
                     (*pac::QSPI).RXDATAX4;
                 } else {
@@ -424,12 +420,12 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        println!("transfer received {:x?}", read);
+        log::debug!("transfer received {:x?}", read);
         Ok(())
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        println!("transfer_in_place {:x?}", words);
+        log::debug!("transfer_in_place {:x?}", words);
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -495,7 +491,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             }
             // Make sure the read is complete (but we shouldn't get here)
             while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
-                println!("Warning: read not complete");
+                log::warn!("Warning: read not complete");
                 if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
                     (*pac::QSPI).RXDATAX4;
                 } else {
@@ -503,7 +499,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        println!("transfer_in_place received {:x?}", words);
+        log::debug!("transfer_in_place received {:x?}", words);
         Ok(())
     }
 

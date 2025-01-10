@@ -10,17 +10,20 @@ keywords = ["mpfs", "polarfire", "hal", "embedded-hal"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64gc-unknown-none-elf"
-features = ["alloc", "print"]
+features = ["alloc", "print", "log"]
 
 [features]
-default = ["alloc", "print"]
+default = ["alloc", "print", "log", "log_colors"]
 debug_logs = ["print"]
+log = ["print", "dep:log"]
+log_colors = []
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
 
 [dependencies]
 mpfs-pac = { version = "0.1", path = "../mpfs-pac" }
 mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros" }
+log = { version = "0.4", optional = true }
 paste = "1.0"
 
 critical-section = { workspace = true }

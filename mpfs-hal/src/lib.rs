@@ -24,6 +24,11 @@ mod print;
 #[cfg(feature = "print")]
 pub use print::*;
 
+#[cfg(feature = "log")]
+mod logger;
+#[cfg(feature = "log")]
+pub use logger::init_logger;
+
 pub mod uart;
 
 //----------------------------------------------------------

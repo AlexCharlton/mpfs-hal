@@ -346,6 +346,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io",
+ "log",
  "mpfs-hal",
  "mpfs-hal-embassy",
  "sdspi",
@@ -481,6 +482,7 @@ dependencies = [
  "critical-section",
  "embedded-alloc",
  "embedded-io",
+ "log",
  "mpfs-hal-procmacros",
  "mpfs-pac",
  "paste",
@@ -703,6 +705,7 @@ dependencies = [
  "embassy-futures",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
+ "log",
  "sdio-host",
 ]
 
