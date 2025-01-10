@@ -338,6 +338,7 @@ dependencies = [
 name = "examples"
 version = "0.0.0"
 dependencies = [
+ "aligned",
  "embassy-embedded-hal",
  "embassy-executor",
  "embassy-sync",

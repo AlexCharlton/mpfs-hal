@@ -12,6 +12,10 @@ embassy-executor = { version = "0.7", features = ["task-arena-size-8192"] }
 embedded-io = "0.6"
 
 # SD example
+aligned = "0.4"
 sdspi = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git" }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
+embassy-embedded-hal = { version = "0.3" }
+embassy-sync = { version = "0.6" }
+static_cell = { version = "1" }
