@@ -23,10 +23,13 @@ print = []
 [dependencies]
 mpfs-pac = { version = "0.1", path = "../mpfs-pac" }
 mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros" }
-log = { version = "0.4", optional = true }
+log = { workspace = true, optional = true }
 paste = "1.0"
 
 critical-section = { workspace = true }
-embedded-alloc = { version = "0.6", optional = true }
-embedded-io = { version = "0.6" }
+embassy-embedded-hal = { workspace = true }
+embedded-alloc = { workspace = true, optional = true }
+embedded-hal = { workspace = true }
+embedded-hal-async = { workspace = true }
+embedded-io = { workspace = true }
 riscv = "0.12"

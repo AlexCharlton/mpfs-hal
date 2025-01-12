@@ -1,4 +1,5 @@
 use crate::pac;
+use embassy_embedded_hal::SetConfig;
 use paste::paste;
 
 pub trait UartPeripheral {
@@ -190,13 +191,25 @@ impl<T: UartPeripheral> Uart<T> {
                 pac::MPFS_HAL_FIRST_HART as u8,
                 pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
             );
+            let mut uart = Uart { peripheral };
+            uart.set_config(&config).unwrap();
+            uart
+        })
+    }
+}
+
+impl<T: UartPeripheral> SetConfig for Uart<T> {
+    type Config = UartConfig;
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        unsafe {
             pac::MSS_UART_init(
-                peripheral.address(),
+                self.peripheral.address(),
                 config.baud_rate.value(),
                 config.data_bits.value() | config.parity.value() | config.stop_bits.value(),
             );
-        });
-        Self { peripheral }
+        }
+        Ok(())
     }
 }
 

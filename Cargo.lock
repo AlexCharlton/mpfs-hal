@@ -350,7 +350,7 @@ dependencies = [
  "mpfs-hal",
  "mpfs-hal-embassy",
  "sdspi",
- "static_cell 1.3.0",
+ "static_cell",
 ]
 
 [[package]]
@@ -480,7 +480,10 @@ name = "mpfs-hal"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "embassy-embedded-hal",
  "embedded-alloc",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "embedded-io",
  "log",
  "mpfs-hal-procmacros",
@@ -501,7 +504,7 @@ dependencies = [
  "embassy-time-queue-utils",
  "mpfs-hal",
  "mpfs-hal-procmacros",
- "static_cell 2.1.0",
+ "static_cell",
 ]
 
 [[package]]
@@ -571,9 +574,6 @@ name = "portable-atomic"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "280dc24453071f1b63954171985a0b0d30058d287960968b9b2aca264c8d4ee6"
-dependencies = [
- "critical-section",
-]
 
 [[package]]
 name = "prettyplease"
@@ -720,15 +720,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "static_cell"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cd3f559c6c41cde362aed95cd84765907e06057f087b17269b41750ec40a3e7"
-dependencies = [
- "portable-atomic",
-]
 
 [[package]]
 name = "static_cell"
