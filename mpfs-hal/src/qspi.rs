@@ -102,9 +102,12 @@ impl SetConfig for Qspi {
     }
 }
 
+/// When buffers are 4 byte aligned, QSPI can read and write 32-bit words. Otherwise, the 8-bit
+/// interface is used.
 impl embedded_hal::spi::SpiBus<u8> for Qspi {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        log::debug!("read");
+        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0;
+        log::debug!("Reading from QSPI. Buffer aligned: {:?}", buffer_aligned);
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -123,36 +126,42 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
             frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
 
-            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            frame_ctrl |= if buffer_aligned {
+                pac::FRMS_FWORD_MASK
+            } else {
+                pac::FRMS_FBYTE_MASK
+            };
             (*pac::QSPI).FRAMES = frame_ctrl;
 
-            // Enable 32-bit transfer mode
-            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+            let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
+            if buffer_aligned {
+                // Enable 32-bit transfer mode
+                (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
 
-            // Transfer 32-bit aligned words
-            let words_32 = words.as_ptr() as *mut u32;
-            let word_count = total_bytes / 4;
+                // Transfer 32-bit aligned words
+                let words_32 = words.as_ptr() as *mut u32;
 
-            for i in 0..word_count {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
-                    core::hint::spin_loop();
+                for i in 0..word_count {
+                    // Wait until transmit FIFO is not full
+                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    // Send dummy data
+                    (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+
+                    // Wait until receive FIFO is not empty
+                    while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    *words_32.add(i) = (*pac::QSPI).RXDATAX4;
                 }
-                // Send dummy data
-                (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
 
-                // Wait until receive FIFO is not empty
-                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
-                    core::hint::spin_loop();
-                }
-                *words_32.add(i) = (*pac::QSPI).RXDATAX4;
+                // Disable 32-bit transfer mode
+                (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                pac::sleep_ms(10);
             }
-
-            // Disable 32-bit transfer mode
-            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
-
-            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-            pac::sleep_ms(10);
 
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
@@ -180,12 +189,17 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        log::debug!("read {:x?}", words);
+        log::debug!("QSPI read complete: {:x?}", words);
         Ok(())
     }
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        log::debug!("write {:x?}", words);
+        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0;
+        log::debug!(
+            "Writing to QSPI {:x?}. Buffer aligned: {:?}",
+            words,
+            buffer_aligned
+        );
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -207,26 +221,28 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
             (*pac::QSPI).FRAMES = frame_ctrl;
 
-            // Enable 32-bit transfer mode
-            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+            let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
+            if buffer_aligned {
+                // Enable 32-bit transfer mode
+                (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
 
-            // Transfer 32-bit aligned words
-            let words_32 = words.as_ptr() as *const u32;
-            let word_count = total_bytes / 4;
+                // Transfer 32-bit aligned words
+                let words_32 = words.as_ptr() as *const u32;
 
-            for i in 0..word_count {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
-                    core::hint::spin_loop();
+                for i in 0..word_count {
+                    // Wait until transmit FIFO is not full
+                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    (*pac::QSPI).TXDATAX4 = *words_32.add(i);
                 }
-                (*pac::QSPI).TXDATAX4 = *words_32.add(i);
+
+                // Disable 32-bit transfer mode
+                (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                pac::sleep_ms(10);
             }
-
-            // Disable 32-bit transfer mode
-            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
-
-            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-            pac::sleep_ms(10);
 
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
@@ -241,11 +257,18 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 core::hint::spin_loop();
             }
         }
+        log::debug!("QSPI write complete");
         Ok(())
     }
 
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-        log::debug!("transfer {:x?}", write);
+        let buffer_aligned: bool =
+            write.as_ptr().align_offset(4) == 0 && read.as_ptr().align_offset(4) == 0;
+        log::debug!(
+            "QSPI transfer {:x?}. Buffer aligned: {:?}",
+            write,
+            buffer_aligned
+        );
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -264,7 +287,11 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
             frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
 
-            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            frame_ctrl |= if buffer_aligned {
+                pac::FRMS_FWORD_MASK
+            } else {
+                pac::FRMS_FBYTE_MASK
+            };
             (*pac::QSPI).FRAMES = frame_ctrl;
 
             // Enable 32-bit transfer mode
@@ -273,39 +300,40 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             // Transfer 32-bit aligned words
             let write_32 = write.as_ptr() as *const u32;
             let read_32 = read.as_ptr() as *mut u32;
-            let word_count = total_bytes / 4;
+            let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
             let tx_word_count = write.len() / 4;
             let rx_word_count = read.len() / 4;
+            if buffer_aligned {
+                for i in 0..word_count {
+                    // Wait until transmit FIFO is not full
+                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    if i < tx_word_count {
+                        // Write data
+                        (*pac::QSPI).TXDATAX4 = *write_32.add(i);
+                    } else {
+                        // Send dummy data
+                        (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+                    }
 
-            for i in 0..word_count {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
-                    core::hint::spin_loop();
-                }
-                if i < tx_word_count {
-                    // Write data
-                    (*pac::QSPI).TXDATAX4 = *write_32.add(i);
-                } else {
-                    // Send dummy data
-                    (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+                    // Wait until receive FIFO is not empty
+                    while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    if i < rx_word_count {
+                        *read_32.add(i) = (*pac::QSPI).RXDATAX4;
+                    } else {
+                        (*pac::QSPI).RXDATAX1; // discard
+                    }
                 }
 
-                // Wait until receive FIFO is not empty
-                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
-                    core::hint::spin_loop();
-                }
-                if i < rx_word_count {
-                    *read_32.add(i) = (*pac::QSPI).RXDATAX4;
-                } else {
-                    (*pac::QSPI).RXDATAX1; // discard
-                }
+                // Disable 32-bit transfer mode
+                (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                pac::sleep_ms(10);
             }
-
-            // Disable 32-bit transfer mode
-            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
-
-            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-            pac::sleep_ms(10);
 
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
@@ -342,12 +370,17 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        log::debug!("transfer received {:x?}", read);
+        log::debug!("QSPI transfer received {:x?}", read);
         Ok(())
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        log::debug!("transfer_in_place {:x?}", words);
+        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0;
+        log::debug!(
+            "QSPI transfer_in_place {:x?}. Buffer aligned: {:?}",
+            words,
+            buffer_aligned
+        );
         unsafe {
             // Wait until QSPI is ready
             while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
@@ -366,35 +399,41 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             frame_ctrl |= 0 << pac::FRMS_CBYTES; // Set command bytes to 0, which will write and read whenever something is in the TX FIFO
             frame_ctrl |= ((*pac::QSPI).CONTROL & pac::CTRL_QMODE12_MASK) << pac::FRMS_QSPI; // If set to QSPI mode, set QSPI bit
 
-            frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
+            frame_ctrl |= if buffer_aligned {
+                pac::FRMS_FWORD_MASK
+            } else {
+                pac::FRMS_FBYTE_MASK
+            };
             (*pac::QSPI).FRAMES = frame_ctrl;
 
-            // Enable 32-bit transfer mode
-            (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
+            let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
+            if buffer_aligned {
+                // Enable 32-bit transfer mode
+                (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
 
-            // Transfer 32-bit aligned words
-            let words_32 = words.as_ptr() as *mut u32;
-            let word_count = total_bytes / 4;
+                // Transfer 32-bit aligned words
+                let words_32 = words.as_ptr() as *mut u32;
 
-            for i in 0..word_count {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
-                    core::hint::spin_loop();
+                for i in 0..word_count {
+                    // Wait until transmit FIFO is not full
+                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    (*pac::QSPI).TXDATAX4 = *words_32.add(i);
+
+                    // Wait until receive FIFO is not empty
+                    while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                        core::hint::spin_loop();
+                    }
+                    *words_32.add(i) = (*pac::QSPI).RXDATAX4;
                 }
-                (*pac::QSPI).TXDATAX4 = *words_32.add(i);
 
-                // Wait until receive FIFO is not empty
-                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
-                    core::hint::spin_loop();
-                }
-                *words_32.add(i) = (*pac::QSPI).RXDATAX4;
+                // Disable 32-bit transfer mode
+                (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
+
+                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                pac::sleep_ms(10);
             }
-
-            // Disable 32-bit transfer mode
-            (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
-
-            // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-            pac::sleep_ms(10);
 
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
@@ -421,7 +460,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        log::debug!("transfer_in_place received {:x?}", words);
+        log::debug!("QSPI transfer_in_place received {:x?}", words);
         Ok(())
     }
 

@@ -36,7 +36,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
     let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
-    let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
+    let mut sd = SdSpi::<_, _, aligned::A4>::new(spid, embassy_time::Delay);
 
     while sd.init().await.is_err() {
         println!("Failed to init card, retrying...");
