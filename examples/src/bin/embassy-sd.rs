@@ -6,8 +6,12 @@ extern crate alloc;
 #[macro_use]
 extern crate mpfs_hal;
 
+use alloc::string::String;
+use block_device_adapters::BufStream;
+use block_device_adapters::BufStreamError;
 use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConfig};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embedded_fatfs::FsOptions;
 use mpfs_hal::pac;
 use mpfs_hal::qspi::{Qspi, SpiConfig, SpiFrequency};
 use sdspi::{sd_init, SdSpi};
@@ -49,6 +53,31 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     let size = sd.size().await;
     println!("Initialization complete! Got card with size {:?}", size);
+
+    let inner = BufStream::<_, 512>::new(sd);
+
+    async {
+        let fs = embedded_fatfs::FileSystem::new(inner, FsOptions::new()).await?;
+        {
+            let root = fs.root_dir();
+            let mut iter = root.iter();
+            loop {
+                if let Some(Ok(entry)) = iter.next().await {
+                    let name: String =
+                        String::from_utf8(entry.short_file_name_as_bytes().to_vec()).unwrap();
+                    println!("Name:{} Length:{}", &name, entry.len());
+                } else {
+                    println!("end");
+                    break;
+                }
+            }
+        }
+        fs.unmount().await?;
+
+        Ok::<(), embedded_fatfs::Error<BufStreamError<sdspi::Error>>>(())
+    }
+    .await
+    .expect("Filesystem tests failed!");
 }
 
 #[panic_handler]

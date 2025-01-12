@@ -14,9 +14,16 @@ mpfs-hal-embassy = { path = "../mpfs-hal-embassy", features = [] }
 
 # SD example
 aligned = "0.4"
+block-device-adapters = { version = "0.2", git = "https://github.com/MabezDev/embedded-fatfs.git" }
+embedded-fatfs = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git", default-features = false, features = [
+    "alloc",
+    "log",
+    "lfn",
+] }
 sdspi = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git", features = [
     "log",
 ] }
+
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-embedded-hal = { workspace = true }
