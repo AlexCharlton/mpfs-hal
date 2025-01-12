@@ -46,7 +46,7 @@ pub struct SpiConfig {
 impl Default for SpiConfig {
     fn default() -> Self {
         Self {
-            frequency: SpiFrequency::F3_333_333,
+            frequency: SpiFrequency::F5_000_000,
             phase: Phase::CaptureOnFirstTransition,
             polarity: Polarity::IdleLow,
         }
@@ -56,21 +56,21 @@ impl Default for SpiConfig {
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum SpiFrequency {
-    F50_000_000 = 1,  // 100MHz / 2
-    F25_000_000 = 2,  // 100MHz / 4
-    F16_666_666 = 3,  // 100MHz / 6
-    F12_500_000 = 4,  // 100MHz / 8
-    F10_000_000 = 5,  // 100MHz / 10
-    F8_333_333 = 6,   // 100MHz / 12
-    F7_142_857 = 7,   // 100MHz / 14
-    F6_250_000 = 8,   // 100MHz / 16
-    F5_555_555 = 9,   // 100MHz / 18
-    F5_000_000 = 0xA, // 100MHz / 20
-    F4_545_454 = 0xB, // 100MHz / 22
-    F4_166_666 = 0xC, // 100MHz / 24
-    F3_846_153 = 0xD, // 100MHz / 26
-    F3_571_428 = 0xE, // 100MHz / 28
-    F3_333_333 = 0xF, // 100MHz / 30
+    F75_000_000 = 1,  // 150MHz / 2
+    F37_500_000 = 2,  // 150MHz / 4
+    F25_000_000 = 3,  // 150MHz / 6
+    F18_750_000 = 4,  // 150MHz / 8
+    F15_000_000 = 5,  // 150MHz / 10
+    F12_500_000 = 6,  // 150MHz / 12
+    F10_714_285 = 7,  // 150MHz / 14
+    F9_375_000 = 8,   // 150MHz / 16
+    F8_333_333 = 9,   // 150MHz / 18
+    F7_500_000 = 0xA, // 150MHz / 20
+    F6_818_181 = 0xB, // 150MHz / 22
+    F6_250_000 = 0xC, // 150MHz / 24
+    F5_769_230 = 0xD, // 150MHz / 26
+    F5_357_142 = 0xE, // 150MHz / 28
+    F5_000_000 = 0xF, // 150MHz / 30
 }
 
 impl SetConfig for Qspi {
@@ -95,7 +95,7 @@ impl SetConfig for Qspi {
                 | (0 << pac::CTRL_XIP)
                 | (0 << pac::CTRL_XIPADDR)
                 | pac::CTRL_EN_MASK;
-            log::debug!("QSPI Control Register: {:#032b}", value);
+            log::trace!("QSPI Control Register: {:#032b}", value);
             (*pac::QSPI).CONTROL = value;
         }
         Ok(())
