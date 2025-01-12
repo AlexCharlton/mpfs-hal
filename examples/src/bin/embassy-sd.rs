@@ -8,14 +8,10 @@ extern crate mpfs_hal;
 
 use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConfig};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-use embassy_time::{Duration, Timer};
 use embedded_hal::spi::{Phase, Polarity};
 use mpfs_hal::pac;
 use sdspi::{sd_init, SdSpi};
 use static_cell::StaticCell;
-
-use embedded_hal::digital::OutputPin;
-use embedded_hal::spi::SpiBus;
 
 static SPI_BUS: StaticCell<Mutex<CriticalSectionRawMutex, Qspi>> = StaticCell::new();
 
@@ -27,77 +23,32 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     spi.set_config(&SpiConfig::default()).unwrap();
     let mut cs = SdChipSelect {};
 
-    cs.set_low().unwrap();
-    Timer::after(Duration::from_millis(100)).await;
-    cs.set_high().unwrap();
-    println!("first cs");
-
-    let buffer = aligned::Aligned::<aligned::A4, _>([
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    ]);
-    spi.write(buffer.as_slice()).unwrap();
-    println!("Initial write");
-
-    let mut buffer = aligned::Aligned::<aligned::A4, _>([0x40, 0, 0, 0, 0, 0x95]); // Reset
-    cs.set_low().unwrap();
-    spi.write(buffer.as_mut_slice()).unwrap();
-    let mut buffer = [0xFF];
     loop {
-        spi.read(&mut buffer).unwrap();
-        if buffer[0] != 0xFF {
-            break;
+        match sd_init(&mut spi, &mut cs).await {
+            Ok(_) => break,
+            Err(e) => {
+                println!("Sd init error: {:?}", e);
+                embassy_time::Timer::after_millis(10).await;
+            }
         }
     }
-    cs.set_high().unwrap();
-    if buffer[0] == 0x01 {
-        println!("Card is present");
-    } else {
-        println!("Card is not present");
+    println!("sd_init complete");
+
+    let spi_bus = SPI_BUS.init(Mutex::new(spi));
+    let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
+    let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
+
+    while sd.init().await.is_err() {
+        println!("Failed to init card, retrying...");
+        embassy_time::Timer::after_millis(500).await;
     }
+    // Increase the speed up to the SD max of 25mhz
+    let mut config = SpiConfig::default();
+    config.frequency = SpiFrequency::F25_000_000;
+    sd.spi().set_config(config);
 
-    println!("result: {:x?}", buffer);
-
-    let mut buffer = aligned::Aligned::<aligned::A4, _>([0x48, 0x00, 0x00, 0x01, 0xAA, 0x87]); // CMD8
-    cs.set_low().unwrap();
-    spi.write(buffer.as_mut_slice()).unwrap();
-    let mut buffer = [0xFF];
-    loop {
-        spi.read(&mut buffer).unwrap();
-        if buffer[0] != 0xFF {
-            break;
-        }
-    }
-    // println!("result: {:x?}", buffer);
-    let mut buffer = [0xFF; 4];
-    spi.read(&mut buffer).unwrap();
-    cs.set_high().unwrap();
-    println!("result: {:x?}", buffer);
-
-    // loop {
-    //     match sd_init(&mut spi, &mut cs).await {
-    //         Ok(_) => break,
-    //         Err(e) => {
-    //             println!("Sd init error: {:?}", e);
-    //             embassy_time::Timer::after_millis(10).await;
-    //         }
-    //     }
-    // }
-    // println!("sd_init complete");
-
-    // let spi_bus = SPI_BUS.init(Mutex::new(spi));
-    // let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
-    // let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
-
-    // while sd.init().await.is_err() {
-    //     println!("Failed to init card, retrying...");
-    //     embassy_time::Timer::after_millis(500).await;
-    // }
-    // // Increase the speed up to the SD max of 25mhz
-    // let mut config = SpiConfig::default();
-    // config.frequency = SpiFrequency::F25_000_000;
-    // sd.spi().set_config(config);
-
-    println!("Initialization complete!");
+    let size = sd.size().await;
+    println!("Initialization complete! Got card with size {:?}", size);
 }
 
 #[panic_handler]
@@ -162,7 +113,7 @@ impl embedded_hal::spi::ErrorType for Qspi {
 }
 
 #[derive(Debug)]
-struct SdError {}
+pub struct SdError {}
 
 impl embedded_hal::spi::Error for SdError {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
@@ -586,3 +537,102 @@ impl embedded_hal_async::spi::SpiBus<u8> for Qspi {
         embedded_hal::spi::SpiBus::flush(self)
     }
 }
+
+// A SPI implementation that uses direct control. Used to create a 400kHz clock.
+// Doesn't seem to be needed.
+/*
+pub struct QspiDirect {}
+
+impl embedded_hal::spi::ErrorType for QspiDirect {
+    type Error = SdError;
+}
+
+impl QspiDirect {
+    pub fn new() -> Self {
+        // Enable direct control of SSEL, SCLK, and SDO[0]
+        unsafe {
+            (*pac::QSPI).DIRECT = (1 << pac::DIRECT_EN_SCLK)   // Enable SCLK control
+                                | (1 << pac::DIRECT_EN_SDO) // Enable SDO[0] control
+                                | (1 << pac::DIRECT_OP_SDOE) // Enable SDO[0] control
+        }
+
+        Self {}
+    }
+}
+
+impl embedded_hal_async::spi::SpiBus<u8> for QspiDirect {
+    async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        // 400kHz = 2.5µs per cycle, so 1.25µs per half cycle
+        const QUARTER_CYCLE_NANOS: u64 = 625;
+
+        for byte in words.iter_mut() {
+            let mut received = 0u8;
+
+            // Transfer one byte, bit by bit
+            for bit in (0..8).rev() {
+                let start = embassy_time::Instant::now();
+
+                // Set MOSI (SDO[0])
+                let bit_out = (*byte >> bit) & 1;
+                unsafe {
+                    let mut reg = (*pac::QSPI).DIRECT;
+                    reg &= !(1 << pac::DIRECT_OP_SDO); // Clear only SDO[0] bit
+                    reg |= (bit_out as u32) << pac::DIRECT_OP_SDO; // Set new SDO[0] value
+                    (*pac::QSPI).DIRECT = reg;
+
+                    // Spin until quarter cycle (before clock high)
+                    while start.elapsed().as_ticks() < QUARTER_CYCLE_NANOS {
+                        core::hint::spin_loop();
+                    }
+
+                    // Clock high
+                    (*pac::QSPI).DIRECT |= 1 << pac::DIRECT_OP_SCLK;
+
+                    // Spin until half cycle + quarter cycle (before sampling)
+                    while start.elapsed().as_ticks() < 2 * QUARTER_CYCLE_NANOS {
+                        core::hint::spin_loop();
+                    }
+
+                    // Sample MISO (SDI[1])
+                    let raw_direct = (*pac::QSPI).DIRECT;
+                    let sdi = (raw_direct >> (pac::DIRECT_IP_SDI + 1)) & 1;
+                    received |= (sdi as u8) << bit;
+
+                    // Spin until full cycle + quarter cycle (before clock low)
+                    while start.elapsed().as_ticks() < 3 * QUARTER_CYCLE_NANOS {
+                        core::hint::spin_loop();
+                    }
+
+                    // Clock low
+                    (*pac::QSPI).DIRECT &= !(1 << pac::DIRECT_OP_SCLK);
+
+                    // Spin until end of cycle
+                    while start.elapsed().as_ticks() < 4 * QUARTER_CYCLE_NANOS {
+                        core::hint::spin_loop();
+                    }
+                }
+            }
+
+            *byte = received;
+        }
+
+        Ok(())
+    }
+
+    async fn read(&mut self, _words: &mut [u8]) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn write(&mut self, _words: &[u8]) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn transfer(&mut self, _read: &mut [u8], _write: &[u8]) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+}
+*/
