@@ -8,10 +8,14 @@ extern crate mpfs_hal;
 
 use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConfig};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embassy_time::{Duration, Timer};
 use embedded_hal::spi::{Phase, Polarity};
 use mpfs_hal::pac;
 use sdspi::{sd_init, SdSpi};
 use static_cell::StaticCell;
+
+use embedded_hal::digital::OutputPin;
+use embedded_hal::spi::SpiBus;
 
 static SPI_BUS: StaticCell<Mutex<CriticalSectionRawMutex, Qspi>> = StaticCell::new();
 
@@ -20,31 +24,78 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     println!("Hello");
 
     let mut spi = Qspi {};
-    //spi.set_config(&config).unwrap();
+    spi.set_config(&SpiConfig::default()).unwrap();
     let mut cs = SdChipSelect {};
+
+    cs.set_low().unwrap();
+    Timer::after(Duration::from_millis(100)).await;
+    cs.set_high().unwrap();
+    println!("first cs");
+
+    let buffer = aligned::Aligned::<aligned::A4, _>([
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ]);
+    spi.write(buffer.as_slice()).unwrap();
+    println!("Initial write");
+
+    let mut buffer = aligned::Aligned::<aligned::A4, _>([0x40, 0, 0, 0, 0, 0x95]); // Reset
+    cs.set_low().unwrap();
+    spi.write(buffer.as_mut_slice()).unwrap();
+    let mut buffer = [0xFF];
     loop {
-        match sd_init(&mut spi, &mut cs).await {
-            Ok(_) => break,
-            Err(e) => {
-                println!("Sd init error: {:?}", e);
-                embassy_time::Timer::after_millis(10).await;
-            }
+        spi.read(&mut buffer).unwrap();
+        if buffer[0] != 0xFF {
+            break;
         }
     }
-    println!("sd_init complete");
-
-    let spi_bus = SPI_BUS.init(Mutex::new(spi));
-    let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
-    let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
-
-    while sd.init().await.is_err() {
-        println!("Failed to init card, retrying...");
-        embassy_time::Timer::after_millis(500).await;
+    cs.set_high().unwrap();
+    if buffer[0] == 0x01 {
+        println!("Card is present");
+    } else {
+        println!("Card is not present");
     }
-    // Increase the speed up to the SD max of 25mhz
-    let mut config = SpiConfig::default();
-    config.frequency = SpiFrequency::F25_000_000;
-    sd.spi().set_config(config);
+
+    println!("result: {:x?}", buffer);
+
+    let mut buffer = aligned::Aligned::<aligned::A4, _>([0x48, 0x00, 0x00, 0x01, 0xAA, 0x87]); // CMD8
+    cs.set_low().unwrap();
+    spi.write(buffer.as_mut_slice()).unwrap();
+    let mut buffer = [0xFF];
+    loop {
+        spi.read(&mut buffer).unwrap();
+        if buffer[0] != 0xFF {
+            break;
+        }
+    }
+    // println!("result: {:x?}", buffer);
+    let mut buffer = [0xFF; 4];
+    spi.read(&mut buffer).unwrap();
+    cs.set_high().unwrap();
+    println!("result: {:x?}", buffer);
+
+    // loop {
+    //     match sd_init(&mut spi, &mut cs).await {
+    //         Ok(_) => break,
+    //         Err(e) => {
+    //             println!("Sd init error: {:?}", e);
+    //             embassy_time::Timer::after_millis(10).await;
+    //         }
+    //     }
+    // }
+    // println!("sd_init complete");
+
+    // let spi_bus = SPI_BUS.init(Mutex::new(spi));
+    // let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
+    // let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
+
+    // while sd.init().await.is_err() {
+    //     println!("Failed to init card, retrying...");
+    //     embassy_time::Timer::after_millis(500).await;
+    // }
+    // // Increase the speed up to the SD max of 25mhz
+    // let mut config = SpiConfig::default();
+    // config.frequency = SpiFrequency::F25_000_000;
+    // sd.spi().set_config(config);
 
     println!("Initialization complete!");
 }
@@ -57,7 +108,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 #[mpfs_hal::init_once]
 fn config() {
-    mpfs_hal::init_logger(log::LevelFilter::Trace);
+    mpfs_hal::init_logger(log::LevelFilter::Info);
     unsafe {
         pac::mss_config_clk_rst(
             pac::mss_peripherals__MSS_PERIPH_CFM,
@@ -161,24 +212,26 @@ impl SetConfig for Qspi {
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
         unsafe {
-            pac::MSS_QSPI_configure(&pac::mss_qspi_config {
-                clk_div: config.frequency as u32,
-                sample: if config.phase == Phase::CaptureOnFirstTransition {
-                    pac::MSS_QSPI_SAMPLE_POSAGE_SPICLK
-                } else {
-                    pac::MSS_QSPI_SAMPLE_NEGAGE_SPICLK
-                } as u8,
-                spi_mode: if config.polarity == Polarity::IdleLow {
-                    pac::mss_qspi_protocol_mode_t_MSS_QSPI_MODE0
-                } else {
-                    pac::mss_qspi_protocol_mode_t_MSS_QSPI_MODE3
-                },
-                io_format: pac::mss_qspi_io_format_t_MSS_QSPI_NORMAL, // TODO: Other modes
-                xip: pac::MSS_QSPI_DISABLE as u8,
-                xip_addr: 0,
-            });
+            let sample = if config.phase == Phase::CaptureOnFirstTransition {
+                pac::MSS_QSPI_SAMPLE_POSAGE_SPICLK
+            } else {
+                pac::MSS_QSPI_SAMPLE_NEGAGE_SPICLK
+            };
+            let mode = if config.polarity == Polarity::IdleLow {
+                pac::mss_qspi_protocol_mode_t_MSS_QSPI_MODE0
+            } else {
+                pac::mss_qspi_protocol_mode_t_MSS_QSPI_MODE3
+            };
+            let value = (sample << pac::CTRL_SAMPLE)
+                | ((config.frequency as u32) << pac::CTRL_CLKRATE)
+                | (pac::mss_qspi_io_format_t_MSS_QSPI_NORMAL << pac::CTRL_QMODE12)
+                | (mode << pac::CTRL_CLKIDL)
+                | (0 << pac::CTRL_XIP)
+                | (0 << pac::CTRL_XIPADDR)
+                | pac::CTRL_EN_MASK;
+            log::debug!("QSPI Control Register: {:#032b}", value);
+            (*pac::QSPI).CONTROL = value;
         }
-
         Ok(())
     }
 }
@@ -317,6 +370,9 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                     core::hint::spin_loop();
                 }
                 (*pac::QSPI).TXDATAX1 = words[i];
+            }
+            while ((*pac::QSPI).STATUS & pac::STTS_TDONE_MASK) == 0 {
+                core::hint::spin_loop();
             }
         }
         Ok(())
