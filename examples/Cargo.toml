@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
 embedded-io = { workspace = true }

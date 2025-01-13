@@ -19,7 +19,9 @@ macro_rules! impl_uart {
 
     // E.g. impl_uart!(UART0, UART0_TAKEN, 0, g_mss_uart_0_lo);
     ($UART:ident, $UART_TAKEN:ident, $num:expr, $instance:ident) => {
-        pub struct $UART {}
+        pub struct $UART {
+            _private: (),
+        }
         static mut $UART_TAKEN: bool = false;
 
         impl crate::Peripheral for $UART {
@@ -29,13 +31,13 @@ macro_rules! impl_uart {
                         None
                     } else {
                         $UART_TAKEN = true;
-                        Some(Self {})
+                        Some(Self { _private: () })
                     }
                 })
             }
 
             unsafe fn steal() -> Self {
-                Self {}
+                Self { _private: () }
             }
         }
 

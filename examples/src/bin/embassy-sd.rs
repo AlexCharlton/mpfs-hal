@@ -9,27 +9,22 @@ extern crate mpfs_hal;
 use alloc::{string::String, vec::Vec};
 use block_device_adapters::{BufStream, BufStreamError, StreamSlice};
 use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConfig};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embedded_fatfs::FsOptions;
 use embedded_io_async::Read;
 use mbr_nostd::{MasterBootRecord, PartitionTable};
-use mpfs_hal::pac;
-use mpfs_hal::qspi::{Qspi, SpiConfig, SpiFrequency};
+use mpfs_hal::qspi::{SpiConfig, SpiFrequency};
 use sdspi::{sd_init, SdSpi};
-use static_cell::StaticCell;
-
-static SPI_BUS: StaticCell<Mutex<CriticalSectionRawMutex, Qspi>> = StaticCell::new();
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     println!("Hello");
 
-    let mut spi = Qspi {};
-    spi.set_config(&SpiConfig::default()).unwrap();
-    let mut cs = SdChipSelect {};
+    let (mut cs, qspi_bus) = mpfs_hal_embassy::sd::init();
+    let mut qspi = qspi_bus.get_mut();
+    qspi.set_config(&SpiConfig::default()).unwrap();
 
     loop {
-        match sd_init(&mut spi, &mut cs).await {
+        match sd_init(&mut qspi, &mut cs).await {
             Ok(_) => break,
             Err(e) => {
                 println!("Sd init error: {:?}", e);
@@ -39,8 +34,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     }
     println!("sd_init complete");
 
-    let spi_bus = SPI_BUS.init(Mutex::new(spi));
-    let spid = SpiDeviceWithConfig::new(spi_bus, cs, SpiConfig::default());
+    let spid = SpiDeviceWithConfig::new(qspi_bus, cs, SpiConfig::default());
     let mut sd = SdSpi::<_, _, aligned::A4>::new(spid, embassy_time::Delay);
 
     while sd.init().await.is_err() {
@@ -115,34 +109,4 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Info);
-    unsafe {
-        pac::MSS_GPIO_init(pac::GPIO0_LO);
-        pac::MSS_GPIO_config(
-            pac::GPIO0_LO,
-            pac::mss_gpio_id_MSS_GPIO_12,
-            pac::MSS_GPIO_OUTPUT_MODE,
-        );
-    }
-    log::info!("Config complete");
-}
-
-struct SdChipSelect {}
-
-impl embedded_hal::digital::OutputPin for SdChipSelect {
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            pac::MSS_GPIO_set_output(pac::GPIO0_LO, pac::mss_gpio_id_MSS_GPIO_12, 0);
-        }
-        Ok(())
-    }
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            pac::MSS_GPIO_set_output(pac::GPIO0_LO, pac::mss_gpio_id_MSS_GPIO_12, 1);
-        }
-        Ok(())
-    }
-}
-
-impl embedded_hal::digital::ErrorType for SdChipSelect {
-    type Error = core::convert::Infallible;
 }

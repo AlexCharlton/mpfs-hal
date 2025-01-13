@@ -366,6 +366,7 @@ version = "0.0.0"
 dependencies = [
  "aligned",
  "block-device-adapters",
+ "critical-section",
  "embassy-embedded-hal",
  "embassy-executor",
  "embassy-sync",
@@ -541,6 +542,7 @@ dependencies = [
  "embassy-time",
  "embassy-time-driver",
  "embassy-time-queue-utils",
+ "embedded-hal 1.0.0",
  "mpfs-hal",
  "mpfs-hal-procmacros",
  "static_cell",

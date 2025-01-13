@@ -2,6 +2,8 @@ use crate::pac;
 use embassy_embedded_hal::SetConfig;
 use embedded_hal::spi::{Phase, Polarity};
 
+static mut QSPI_TAKEN: bool = false;
+
 pub fn init() {
     unsafe {
         pac::mss_config_clk_rst(
@@ -14,14 +16,30 @@ pub fn init() {
             pac::MPFS_HAL_FIRST_HART as u8,
             pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
         );
-        // pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_QSPI_INT_OFFSET, 2);
-        // pac::PLIC_EnableIRQ(pac::PLIC_IRQn_Type_PLIC_QSPI_INT_OFFSET);
-
         pac::MSS_QSPI_init();
     }
 }
 
-pub struct Qspi {}
+pub struct Qspi {
+    _private: (),
+}
+
+impl crate::Peripheral for Qspi {
+    fn take() -> Option<Self> {
+        critical_section::with(|_| unsafe {
+            if QSPI_TAKEN {
+                None
+            } else {
+                QSPI_TAKEN = true;
+                Some(Self { _private: () })
+            }
+        })
+    }
+
+    unsafe fn steal() -> Self {
+        Self { _private: () }
+    }
+}
 
 impl embedded_hal::spi::ErrorType for Qspi {
     type Error = SdError;
