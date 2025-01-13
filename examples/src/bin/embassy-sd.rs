@@ -6,12 +6,13 @@ extern crate alloc;
 #[macro_use]
 extern crate mpfs_hal;
 
-use alloc::string::String;
-use block_device_adapters::BufStream;
-use block_device_adapters::BufStreamError;
+use alloc::{string::String, vec::Vec};
+use block_device_adapters::{BufStream, BufStreamError, StreamSlice};
 use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConfig};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embedded_fatfs::FsOptions;
+use embedded_io_async::Read;
+use mbr_nostd::{MasterBootRecord, PartitionTable};
 use mpfs_hal::pac;
 use mpfs_hal::qspi::{Qspi, SpiConfig, SpiFrequency};
 use sdspi::{sd_init, SdSpi};
@@ -54,30 +55,55 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let size = sd.size().await;
     println!("Initialization complete! Got card with size {:?}", size);
 
-    let inner = BufStream::<_, 512>::new(sd);
+    let mut inner = BufStream::<_, 512>::new(sd);
+    let mut buf = [0; 512];
+    inner.read(&mut buf).await.unwrap();
+    let mbr = MasterBootRecord::from_bytes(&buf).unwrap();
+    println!("MBR: {:?}\n", mbr.partition_table_entries());
+
+    let partition = mbr.partition_table_entries()[0];
+    let start_offset = partition.logical_block_address as u64 * 512;
+    let end_offset = start_offset + partition.sector_count as u64 * 512;
+    let inner = StreamSlice::new(inner, start_offset, end_offset)
+        .await
+        .unwrap();
 
     async {
-        let fs = embedded_fatfs::FileSystem::new(inner, FsOptions::new()).await?;
+        let fs = embedded_fatfs::FileSystem::new(inner, FsOptions::new())
+            .await
+            .unwrap();
         {
             let root = fs.root_dir();
             let mut iter = root.iter();
-            loop {
-                if let Some(Ok(entry)) = iter.next().await {
-                    let name: String =
-                        String::from_utf8(entry.short_file_name_as_bytes().to_vec()).unwrap();
-                    println!("Name:{} Length:{}", &name, entry.len());
-                } else {
-                    println!("end");
-                    break;
+            while let Some(Ok(entry)) = iter.next().await {
+                println!("Name:{} Length:{}", entry.short_file_name(), entry.len());
+                if entry.is_file() {
+                    let mut file = root.open_file(&entry.short_file_name()).await.unwrap();
+                    let buf = read_to_end(&mut file).await.unwrap();
+                    println!("  File contents:\n  {}", String::from_utf8_lossy(&buf));
                 }
             }
         }
-        fs.unmount().await?;
+        fs.unmount().await.unwrap();
 
         Ok::<(), embedded_fatfs::Error<BufStreamError<sdspi::Error>>>(())
     }
     .await
     .expect("Filesystem tests failed!");
+}
+
+async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
+    let mut buf = Vec::new();
+    loop {
+        let mut tmp = [0; 512];
+        match io.read(&mut tmp).await {
+            Ok(0) => break,
+            Ok(n) => buf.extend(&tmp[..n]),
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(buf)
 }
 
 #[panic_handler]

@@ -374,7 +374,9 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io",
+ "embedded-io-async",
  "log",
+ "mbr-nostd",
  "mpfs-hal",
  "mpfs-hal-embassy",
  "sdspi",
@@ -490,6 +492,15 @@ name = "log"
 version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
+
+[[package]]
+name = "mbr-nostd"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e7b12e539fe14d6423dc8864bd5b5fc1f04fd14f5d9152a137de285e4329f7"
+dependencies = [
+ "byteorder",
+]
 
 [[package]]
 name = "memchr"

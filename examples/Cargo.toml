@@ -8,6 +8,7 @@ publish = false
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
 embedded-io = { workspace = true }
+embedded-io-async = { workspace = true }
 log = { workspace = true }
 mpfs-hal = { path = "../mpfs-hal", features = ["alloc", "print"] }
 mpfs-hal-embassy = { path = "../mpfs-hal-embassy", features = [] }
@@ -28,4 +29,5 @@ embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-embedded-hal = { workspace = true }
 embassy-sync = { workspace = true }
+mbr-nostd = "0.1"
 static_cell = { workspace = true }
