@@ -124,7 +124,7 @@ impl SetConfig for Qspi {
 /// interface is used.
 impl embedded_hal::spi::SpiBus<u8> for Qspi {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0;
+        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
         log::debug!("Reading from QSPI. Buffer aligned: {:?}", buffer_aligned);
         unsafe {
             // Wait until QSPI is ready
@@ -177,8 +177,10 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 // Disable 32-bit transfer mode
                 (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
 
-                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-                pac::sleep_ms(10);
+                if total_bytes % 4 != 0 {
+                    // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                    pac::sleep_ms(10);
+                }
             }
 
             // Transfer remaining bytes
@@ -212,7 +214,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
     }
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0;
+        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
         log::debug!(
             "Writing to QSPI {:x?}. Buffer aligned: {:?}",
             words,
@@ -258,8 +260,10 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 // Disable 32-bit transfer mode
                 (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
 
-                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-                pac::sleep_ms(10);
+                if total_bytes % 4 != 0 {
+                    // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                    pac::sleep_ms(10);
+                }
             }
 
             // Transfer remaining bytes
@@ -280,8 +284,9 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
     }
 
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-        let buffer_aligned: bool =
-            write.as_ptr().align_offset(4) == 0 && read.as_ptr().align_offset(4) == 0;
+        let buffer_aligned: bool = write.as_ptr().align_offset(4) == 0
+            && read.as_ptr().align_offset(4) == 0
+            && (write.len() > 3 || read.len() > 3);
         log::debug!(
             "QSPI transfer {:x?}. Buffer aligned: {:?}",
             write,
@@ -349,8 +354,10 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 // Disable 32-bit transfer mode
                 (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
 
-                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-                pac::sleep_ms(10);
+                if total_bytes % 4 != 0 {
+                    // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                    pac::sleep_ms(10);
+                }
             }
 
             // Transfer remaining bytes
@@ -393,7 +400,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0;
+        let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
         log::debug!(
             "QSPI transfer_in_place {:x?}. Buffer aligned: {:?}",
             words,
@@ -449,8 +456,10 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 // Disable 32-bit transfer mode
                 (*pac::QSPI).CONTROL &= !pac::CTRL_FLAGSX4_MASK;
 
-                // Without this delay the TXDATAX1 FIFO does not get updated with proper data
-                pac::sleep_ms(10);
+                if total_bytes % 4 != 0 {
+                    // Without this delay the TXDATAX1 FIFO does not get updated with proper data
+                    pac::sleep_ms(10);
+                }
             }
 
             // Transfer remaining bytes
