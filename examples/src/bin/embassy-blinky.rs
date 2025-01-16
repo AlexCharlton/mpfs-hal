@@ -4,29 +4,25 @@
 extern crate alloc;
 
 use embassy_time::Timer;
-use mpfs_hal::pac;
+use embedded_hal::digital::OutputPin;
+use mpfs_hal::gpio::*;
+use mpfs_hal::Peripheral;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    unsafe {
-        pac::MSS_GPIO_init(pac::GPIO2_LO);
-        pac::MSS_GPIO_config(
-            pac::GPIO2_LO,
-            pac::mss_gpio_id_MSS_GPIO_0,
-            pac::MSS_GPIO_OUTPUT_MODE,
-        );
-    }
+    let mut p8_0 = Output::new(P8_3::take().unwrap());
 
     loop {
         Timer::after_millis(500).await;
-        unsafe {
-            pac::MSS_GPIO_set_output(pac::GPIO2_LO, pac::mss_gpio_id_MSS_GPIO_0, 1);
-        }
+        p8_0.set_high().unwrap();
         Timer::after_millis(500).await;
-        unsafe {
-            pac::MSS_GPIO_set_output(pac::GPIO2_LO, pac::mss_gpio_id_MSS_GPIO_0, 0);
-        }
+        p8_0.set_low().unwrap();
     }
+}
+
+#[mpfs_hal::init_once]
+fn config() {
+    mpfs_hal::gpio::init();
 }
 
 #[panic_handler]

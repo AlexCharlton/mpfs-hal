@@ -10,3 +10,5 @@
 #include "platform/drivers/mss/mss_watchdog/mss_watchdog.h"
 #include "platform/drivers/mss/mss_sys_services/mss_sys_services.h"
 #include "platform/drivers/mss/pf_pcie/pf_pcie.h"
+
+#include "platform/drivers/fpga_ip/CoreGPIO/core_gpio.h"

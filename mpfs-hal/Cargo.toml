@@ -10,15 +10,16 @@ keywords = ["mpfs", "polarfire", "hal", "embedded-hal"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64gc-unknown-none-elf"
-features = ["alloc", "print", "log"]
+features = ["alloc", "print", "log", "beaglev-fire"]
 
 [features]
-default = ["alloc", "print", "log", "log_colors"]
+default = ["alloc", "print", "log", "log_colors", "beaglev-fire"]
 debug_logs = ["print"]
 log = ["print", "dep:log"]
 log_colors = []
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
+beaglev-fire = ["mpfs-pac/beaglev-fire"]
 
 [dependencies]
 mpfs-pac = { version = "0.1", path = "../mpfs-pac" }

@@ -29,13 +29,20 @@ fn main() {
             let path = e.path();
             let is_c_file = path.extension().map_or(false, |ext| ext == "c");
             let path_str = path.to_string_lossy().replace('\\', "/");
-            let in_fpga_ip = path_str.contains("mpfs-platform/platform/drivers/fpga_ip");
+            let in_mss = path_str.contains("mpfs-platform/platform/drivers/mss");
             let mss_skip = path_str.contains("mss_ethernet_mac") || path_str.contains("mss_spi");
+            let in_fpga_ip = path_str.contains("mpfs-platform/platform/drivers/fpga_ip");
+            let fpga_include = path_str.contains("core_gpio");
 
-            is_c_file && !in_fpga_ip && !mss_skip
+            is_c_file
+                && ((in_fpga_ip && fpga_include)
+                    || (in_mss && !mss_skip)
+                    || !(in_mss || in_fpga_ip))
         })
         .map(|e| e.path().to_owned())
         .collect();
+
+    // println!("cargo:warning=C sources: {:?}", c_sources);
 
     // Define assembly sources
     let asm_sources = [
