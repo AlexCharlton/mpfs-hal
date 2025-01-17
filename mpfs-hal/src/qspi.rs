@@ -42,13 +42,13 @@ impl crate::Peripheral for Qspi {
 }
 
 impl embedded_hal::spi::ErrorType for Qspi {
-    type Error = SdError;
+    type Error = SpiError;
 }
 
 #[derive(Debug)]
-pub enum SdError {}
+pub enum SpiError {}
 
-impl embedded_hal::spi::Error for SdError {
+impl embedded_hal::spi::Error for SpiError {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
         embedded_hal::spi::ErrorKind::Other
     }

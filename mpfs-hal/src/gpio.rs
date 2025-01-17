@@ -4,7 +4,7 @@ use crate::pac;
 #[allow(dead_code)]
 enum GpioPeripheral {
     Mss(*mut pac::GPIO_TypeDef),
-    FpgaCore(usize),
+    FpgaCore(pac::gpio_instance_t),
 }
 
 #[derive(Debug)]
@@ -18,11 +18,13 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
+                    log::trace!("Configuring MSS GPIO {:?} to output", self);
                     pac::MSS_GPIO_config(typedef, self.number, pac::MSS_GPIO_OUTPUT_MODE);
                 }
                 GpioPeripheral::FpgaCore(address) => {
-                    // TODO: Implement FPGA Core GPIO configuration
-                    unimplemented!()
+                    let mut address = address;
+                    log::trace!("Configuring FPGA Core GPIO {:?} to output", self);
+                    pac::GPIO_config(&mut address, self.number, pac::MSS_GPIO_OUTPUT_MODE);
                 }
             }
         }
@@ -32,11 +34,19 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
+                    log::trace!("Setting MSS GPIO {:?} to high", typedef);
                     pac::MSS_GPIO_set_output(typedef, self.number, 1);
                 }
                 GpioPeripheral::FpgaCore(address) => {
-                    // TODO: Implement FPGA Core GPIO configuration
-                    unimplemented!()
+                    let mut address = address;
+                    let mut gpio_outputs = pac::GPIO_get_outputs(&mut address);
+                    gpio_outputs |= 1 << self.number;
+                    log::trace!(
+                        "Setting FPGA Core GPIO {:?} to high with value {:?}",
+                        self,
+                        gpio_outputs
+                    );
+                    pac::GPIO_set_outputs(&mut address, gpio_outputs);
                 }
             }
         }
@@ -46,11 +56,19 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
+                    log::trace!("Setting MSS GPIO {:?} to low", self);
                     pac::MSS_GPIO_set_output(typedef, self.number, 0);
                 }
                 GpioPeripheral::FpgaCore(address) => {
-                    // TODO: Implement FPGA Core GPIO configuration
-                    unimplemented!()
+                    let mut address = address;
+                    let mut gpio_outputs = pac::GPIO_get_outputs(&mut address);
+                    gpio_outputs &= !(1 << self.number);
+                    log::trace!(
+                        "Setting FPGA Core GPIO {:?} to low with value {:?}",
+                        self,
+                        gpio_outputs
+                    );
+                    pac::GPIO_set_outputs(&mut address, gpio_outputs);
                 }
             }
         }
@@ -139,12 +157,12 @@ mod beaglev_fire {
     use paste::paste;
 
     // Move to PAC?
-    static mut P8_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
+    const P8_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
         base_addr: 0x41100000,
         apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
     };
 
-    static mut P9_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
+    const P9_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
         base_addr: 0x41200000,
         apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
     };
@@ -154,23 +172,11 @@ mod beaglev_fire {
             pac::MSS_GPIO_init(pac::GPIO2_LO);
             pac::mss_enable_fabric();
             let mut p8: pac::gpio_instance_t = P8_CORE_GPIO;
+            log::trace!("Initializing FPGA Core GPIO {:?}", p8);
             pac::GPIO_init(&mut p8, P8_CORE_GPIO.base_addr, P8_CORE_GPIO.apb_bus_width);
             let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
+            log::trace!("Initializing FPGA Core GPIO {:?}", p9);
             pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
-
-            /*
-            // MOVE
-            pac::GPIO_config(
-                &mut p8,
-                pac::mss_gpio_id_MSS_GPIO_0,
-                pac::MSS_GPIO_OUTPUT_MODE,
-            );
-
-            let mut gpio_outputs = pac::GPIO_get_outputs(&mut p8);
-            // Set 0 and 4 to high
-            gpio_outputs |= pac::MSS_GPIO_0_MASK | pac::MSS_GPIO_4_MASK;
-            pac::GPIO_set_outputs(&mut p8, gpio_outputs);
-            */
         }
     }
 
@@ -252,4 +258,27 @@ mod beaglev_fire {
     impl_mss_gpio_pin!(P8_28, 25, GpioPeripheral::Mss(pac::GPIO2_LO));
     impl_mss_gpio_pin!(P8_29, 26, GpioPeripheral::Mss(pac::GPIO2_LO));
     impl_mss_gpio_pin!(P8_30, 27, GpioPeripheral::Mss(pac::GPIO2_LO));
+    impl_mss_gpio_pin!(P8_31, 0, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_32, 1, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_33, 2, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_34, 3, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_35, 4, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_36, 5, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_37, 6, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_38, 7, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_39, 8, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_40, 9, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_41, 10, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_42, 11, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_43, 12, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_44, 13, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_45, 14, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P8_46, 15, GpioPeripheral::FpgaCore(P8_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_12, 1, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_15, 4, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_23, 10, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_25, 12, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_27, 14, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_30, 17, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
+    impl_mss_gpio_pin!(P9_41, 19, GpioPeripheral::FpgaCore(P9_CORE_GPIO));
 }
