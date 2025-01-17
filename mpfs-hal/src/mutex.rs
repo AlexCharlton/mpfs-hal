@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
-// A Mutex that does not protect against interrupts, but does protect against other cores
 const LOCK_UNOWNED: usize = 0;
 
+/// A Mutex that does not protect against interrupts, but does protect against other cores
 pub struct Mutex {
     owner: AtomicUsize,
 }

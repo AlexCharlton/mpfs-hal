@@ -5,14 +5,15 @@ edition = "2021"
 publish = false
 
 [dependencies]
+mpfs-hal = { workspace = true, features = ["alloc", "print"] }
+mpfs-hal-embassy = { workspace = true, features = [] }
+
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 log = { workspace = true }
-mpfs-hal = { path = "../mpfs-hal", features = ["alloc", "print"] }
-mpfs-hal-embassy = { path = "../mpfs-hal-embassy", features = [] }
 
 # SD example
 aligned = "0.4"

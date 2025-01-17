@@ -3,23 +3,34 @@
 This repository contains a hardware abstraction layer for the Microchip PolarFire SoC, built on the Mirochip-provided [platform](https://github.com/polarfire-soc/platform), as well as [Embassy](https://github.com/embassy-rs/embassy) support and a TTY application which can flash images to a board that is using the [HSS](https://github.com/polarfire-soc/hss) bootloader.
 
 > [!NOTE]
-> This repository is an early work in progress. There is not much HAL to speak of. Only the BeagleV-Fire is currently supported, but additional board support should be fairly straightforward.
+> This repository is an early work in progress. See crate descriptions below for details about what features are supported. Currently only the BeagleV-Fire board is targeted, but additional board support should be fairly straightforward.
 
 **Primary crates**:
 
 `mpfs-hal` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal)](https://crates.io/crates/mpfs-hal) [![Docs.rs](https://docs.rs/mpfs-hal/badge.svg)](https://docs.rs/mpfs-hal)<br />
-[critical_section](https://github.com/rust-embedded/critical-section), [embedded-alloc](https://github.com/rust-embedded/embedded-alloc), integration. [embedded-hal](https://github.com/rust-embedded/embedded-hal) support intended.
+- [critical_section](https://github.com/rust-embedded/critical-section)
+- [embedded-alloc](https://github.com/rust-embedded/embedded-alloc) (`alloc` feature)
+- Board-specific GPIO ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/digital/index.html)) with (TODO) support for interrupts ([embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/digital/index.html))
+- UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/)) (Read TODO)
+- UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
+- QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html)) `SpiBus`
+- Ethernet and USB support planned next
+
 
 `mpfs-hal-embassy` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal-embassy)](https://crates.io/crates/mpfs-hal-embassy) [![Docs.rs](https://docs.rs/mpfs-hal-embassy/badge.svg)](https://docs.rs/mpfs-hal-embassy)<br />
-Embassy integration, with an Executor and Time Driver, supporting multicore with timer interrupts for low-power application.
+- Embassy integration, with an Executor and Time Driver, supporting multicore with timer interrupts for low-power application.
+- Board-specific SD peripheral support via [embassy-embedded-hal](https://docs.embassy.dev/embassy-embedded-hal/git/default/shared_bus/asynch/spi/struct.SpiDevice.html) `SpiDevice` (which implements the [embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiDevice.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiDevice.html) traits of the same name)
+
 
 `mpfs-pac` | [![Crates.io](https://img.shields.io/crates/v/mpfs-pac)](https://crates.io/crates/mpfs-pac) [![Docs.rs](https://docs.rs/mpfs-pac/badge.svg)](https://docs.rs/mpfs-pac)<br />
-A peripheral access crate for the PolarFire SoC.
+A peripheral access crate for the PolarFire SoC. Largely generated from the [platform](https://github.com/polarfire-soc/platform) repository.
+
 
 **Utility crates**:
 
 `hss-tty-flasher` | [![Crates.io](https://img.shields.io/crates/v/hss-tty-flasher)](https://crates.io/crates/hss-tty-flasher)<br />
 A TTY interface that allows you to flash ELF files to PolarFire SoC devices using the HSS bootloader.
+
 
 **Internal crates**:
 
@@ -43,7 +54,7 @@ $ rustup target add riscv64gc-unknown-none-elf
 Additionally, the only flow tested so far uses HSS as the bootloader. Installing the [HSS Payload Generator](https://git.beagleboard.org/beaglev-fire/hart-software-services/-/tree/main-beaglev-fire/tools/hss-payload-generator) is required.
 
 ## Usage
-See the examples:
+See the [examples](https://github.com/AlexCharlton/mpfs-hal/tree/main/examples):
 ```sh
 $ cd examples
 $ cargo build --bin embassy-multicore

@@ -241,3 +241,5 @@ impl<T: UartPeripheral> embedded_io::Write for Uart<T> {
         Ok(())
     }
 }
+
+// TODO: Implement Read

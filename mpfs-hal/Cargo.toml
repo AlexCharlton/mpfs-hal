@@ -22,10 +22,8 @@ print = []
 beaglev-fire = ["mpfs-pac/beaglev-fire"]
 
 [dependencies]
-mpfs-pac = { version = "0.1", path = "../mpfs-pac" }
-mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros" }
-log = { workspace = true, optional = true }
-paste = "1.0"
+mpfs-pac = { workspace = true }
+mpfs-hal-procmacros = { workspace = true }
 
 critical-section = { workspace = true }
 embassy-embedded-hal = { workspace = true }
@@ -33,4 +31,6 @@ embedded-alloc = { workspace = true, optional = true }
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embedded-io = { workspace = true }
+log = { workspace = true, optional = true }
+paste = "1.0"
 riscv = "0.12"
