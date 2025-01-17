@@ -13,10 +13,10 @@ default-target = "riscv64gc-unknown-none-elf"
 features = ["alloc", "print", "log", "beaglev-fire"]
 
 [features]
-default = ["alloc", "print", "log", "log_colors", "beaglev-fire"]
-debug_logs = ["print"]
+default = ["alloc", "print", "log", "log-colors", "beaglev-fire"]
+debug-logs = ["print"]
 log = ["print", "dep:log"]
-log_colors = []
+log-colors = []
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
 beaglev-fire = ["mpfs-pac/beaglev-fire"]

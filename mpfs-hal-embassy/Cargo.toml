@@ -13,9 +13,9 @@ default-target = "riscv64gc-unknown-none-elf"
 features = []
 
 [features]
-default = ["beaglev_fire"]
-debug_logs = ["mpfs-hal/debug_logs"]
-beaglev_fire = []
+default = ["beaglev-fire"]
+debug-logs = ["mpfs-hal/debug-logs"]
+beaglev-fire = ["mpfs-hal/beaglev-fire"]
 
 [dependencies]
 mpfs-hal = { version = "0.1", path = "../mpfs-hal", features = [] }

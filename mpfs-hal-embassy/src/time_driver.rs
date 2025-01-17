@@ -29,7 +29,7 @@ impl Driver for TimeDriver {
         critical_section::with(|cs| {
             let mut queue = self.queue.borrow(cs).borrow_mut();
 
-            #[cfg(feature = "debug_logs")]
+            #[cfg(feature = "debug-logs")]
             mpfs_hal::print_unguarded!("schedule wake for hart {} at {}\n", pac::hart_id(), at);
 
             if queue.schedule_wake(at, waker) {
@@ -45,21 +45,21 @@ impl Driver for TimeDriver {
 impl TimeDriver {
     // Returns false if the alarm is already expired, otherwise true
     fn set_alarm(&self, timestamp: u64) -> bool {
-        #[cfg(feature = "debug_logs")]
+        #[cfg(feature = "debug-logs")]
         mpfs_hal::print_unguarded!("Setting alarm for hart {} to {}\n", hart_id, timestamp,);
 
         let now = self.now();
         if timestamp <= now {
-            #[cfg(feature = "debug_logs")]
+            #[cfg(feature = "debug-logs")]
             mpfs_hal::print_unguarded!("Alarm already expired\n");
             return false; // Already expired
         }
         if timestamp == u64::MAX {
-            #[cfg(feature = "debug_logs")]
+            #[cfg(feature = "debug-logs")]
             mpfs_hal::print_unguarded!("Alarm set to max\n");
             return true; // The alarm is "set" (but it will never trigger, since it's set to max)
         }
-        #[cfg(feature = "debug_logs")]
+        #[cfg(feature = "debug-logs")]
         mpfs_hal::print_unguarded!("Setting alarm\n");
 
         let diff = timestamp - now;
@@ -118,12 +118,12 @@ pub(crate) fn init() {
 
 #[no_mangle]
 extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
-    #[cfg(feature = "debug_logs")]
+    #[cfg(feature = "debug-logs")]
     mpfs_hal::print_unguarded!("Hart {} timer! at {}\n", pac::hart_id(), DRIVER.now());
 
     let pending = DRIVER.trigger_alarm();
 
-    #[cfg(feature = "debug_logs")]
+    #[cfg(feature = "debug-logs")]
     mpfs_hal::print_unguarded!("returning from timer\n");
 
     return if pending {

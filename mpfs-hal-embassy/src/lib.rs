@@ -9,7 +9,6 @@ pub mod time_driver;
 
 pub mod qspi;
 
-#[cfg(feature = "beaglev_fire")]
 pub mod sd;
 
 pub use mpfs_hal_procmacros::{

@@ -1,5 +1,7 @@
 use crate::pac;
 
+// TODO Inputs, interrupts
+
 #[derive(Debug)]
 #[allow(dead_code)]
 enum GpioPeripheral {

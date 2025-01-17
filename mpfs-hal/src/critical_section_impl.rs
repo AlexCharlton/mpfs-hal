@@ -67,7 +67,7 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
             }
         }
 
-        #[cfg(feature = "debug_logs")]
+        #[cfg(feature = "debug-logs")]
         {
             crate::print_unguarded!("hart {} acquired", hart_id);
             if was_enabled {
@@ -92,7 +92,7 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
             return;
         }
 
-        #[cfg(feature = "debug_logs")]
+        #[cfg(feature = "debug-logs")]
         {
             crate::println_unguarded!("hart {} releasing\n", hart_id());
         }

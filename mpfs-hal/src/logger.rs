@@ -36,7 +36,7 @@ impl log::Log for MpfsLogger {
         const BLUE: &str = "\u{001B}[34m";
         const CYAN: &str = "\u{001B}[35m";
 
-        #[cfg(feature = "log_colors")]
+        #[cfg(feature = "log-colors")]
         let color = match record.level() {
             log::Level::Error => RED,
             log::Level::Warn => YELLOW,
@@ -44,12 +44,12 @@ impl log::Log for MpfsLogger {
             log::Level::Debug => BLUE,
             log::Level::Trace => CYAN,
         };
-        #[cfg(feature = "log_colors")]
+        #[cfg(feature = "log-colors")]
         let reset = RESET;
 
-        #[cfg(not(feature = "log_colors"))]
+        #[cfg(not(feature = "log-colors"))]
         let color = "";
-        #[cfg(not(feature = "log_colors"))]
+        #[cfg(not(feature = "log-colors"))]
         let reset = "";
 
         println!("{}{} - {}{}", color, record.level(), record.args(), reset);
