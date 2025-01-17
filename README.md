@@ -68,6 +68,3 @@ Get cargo to check using the correct target:
 ```sh
 $ cargo check --target riscv64gc-unknown-none-elf
 ```
-
-## TODO
-- Get back to published embassy crates after https://github.com/embassy-rs/embassy/pull/3547 is released

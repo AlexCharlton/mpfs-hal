@@ -1,10 +1,11 @@
 use crate::pac;
 
-// TODO Inputs, interrupts
+// TODO Interrupts
 
 #[derive(Debug)]
 #[allow(dead_code)]
-enum GpioPeripheral {
+#[doc(hidden)]
+pub enum GpioPeripheral {
     Mss(*mut pac::GPIO_TypeDef),
     FpgaCore(pac::gpio_instance_t),
 }
@@ -16,7 +17,14 @@ pub struct Pin {
 }
 
 impl Pin {
-    fn config_output(&self) {
+    // Meant to be used only by board-support code
+    #[doc(hidden)]
+    pub fn new(number: u32, peripheral: GpioPeripheral) -> Self {
+        Self { number, peripheral }
+    }
+
+    #[doc(hidden)]
+    pub fn config_output(&self) {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
@@ -32,7 +40,25 @@ impl Pin {
         }
     }
 
-    fn set_high(&self) {
+    #[doc(hidden)]
+    pub fn config_input(&self) {
+        unsafe {
+            match self.peripheral {
+                GpioPeripheral::Mss(typedef) => {
+                    log::trace!("Configuring MSS GPIO {:?} to input", self);
+                    pac::MSS_GPIO_config(typedef, self.number, pac::MSS_GPIO_INPUT_MODE);
+                }
+                GpioPeripheral::FpgaCore(address) => {
+                    let mut address = address;
+                    log::trace!("Configuring FPGA Core GPIO {:?} to input", self);
+                    pac::GPIO_config(&mut address, self.number, pac::MSS_GPIO_INPUT_MODE);
+                }
+            }
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn set_high(&self) {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
@@ -54,7 +80,8 @@ impl Pin {
         }
     }
 
-    fn set_low(&self) {
+    #[doc(hidden)]
+    pub fn set_low(&self) {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
@@ -71,6 +98,23 @@ impl Pin {
                         gpio_outputs
                     );
                     pac::GPIO_set_outputs(&mut address, gpio_outputs);
+                }
+            }
+        }
+    }
+
+    /// Returns true if the input is in the logical high state
+    pub fn is_high(&self) -> bool {
+        unsafe {
+            match self.peripheral {
+                GpioPeripheral::Mss(typedef) => {
+                    let inputs = (*typedef).GPIO_IN;
+                    inputs & (1 << self.number) != 0
+                }
+                GpioPeripheral::FpgaCore(address) => {
+                    let mut address = address;
+                    let inputs = pac::GPIO_get_inputs(&mut address);
+                    inputs & (1 << self.number) != 0
                 }
             }
         }
@@ -106,6 +150,32 @@ impl embedded_hal::digital::OutputPin for Output {
     fn set_low(&mut self) -> Result<(), Self::Error> {
         self.pin.set_low();
         Ok(())
+    }
+}
+
+pub struct Input {
+    pub pin: Pin,
+}
+
+impl Input {
+    pub fn new<P: GpioPin>(pin: P) -> Self {
+        let address = pin.address();
+        address.config_input();
+        Self { pin: address }
+    }
+}
+
+impl embedded_hal::digital::ErrorType for Input {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_hal::digital::InputPin for Input {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.pin.is_high())
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(!self.pin.is_high())
     }
 }
 

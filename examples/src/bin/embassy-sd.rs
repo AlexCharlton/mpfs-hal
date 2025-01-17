@@ -12,7 +12,10 @@ use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConf
 use embedded_fatfs::FsOptions;
 use embedded_io_async::Read;
 use mbr_nostd::{MasterBootRecord, PartitionTable};
-use mpfs_hal::qspi::{SpiConfig, SpiFrequency};
+use mpfs_hal::{
+    qspi::{SpiConfig, SpiFrequency},
+    Peripheral,
+};
 use sdspi::{sd_init, SdSpi};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
@@ -22,6 +25,16 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let (mut cs, qspi_bus) = mpfs_hal_embassy::sd::init();
     let mut qspi = qspi_bus.get_mut();
     qspi.set_config(&SpiConfig::default()).unwrap();
+
+    let mut sd_detect = mpfs_hal_embassy::sd::SdDetect::take().unwrap();
+
+    if !sd_detect.is_inserted() {
+        println!("SD card not inserted, waiting...");
+        while !sd_detect.is_inserted() {
+            embassy_time::Timer::after_millis(50).await;
+        }
+    }
+    println!("SD card detected");
 
     loop {
         match sd_init(&mut qspi, &mut cs).await {
