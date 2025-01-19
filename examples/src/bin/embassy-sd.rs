@@ -30,9 +30,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     if !sd_detect.is_inserted() {
         println!("SD card not inserted, waiting...");
-        while !sd_detect.is_inserted() {
-            embassy_time::Timer::after_millis(50).await;
-        }
+        sd_detect.wait_for_inserted().await.unwrap();
     }
     println!("SD card detected");
 

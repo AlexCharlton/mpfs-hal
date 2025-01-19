@@ -13,7 +13,9 @@ mod beaglev_fire {
             pac::MSS_GPIO_init(pac::GPIO0_LO);
             pac::MSS_GPIO_init(pac::GPIO2_LO);
             SdChipSelect::steal().pin.config_output();
-            SdDetect::steal().pin.config_input();
+            SdDetect::steal()
+                .pin
+                .config_input(gpio::InterruptTrigger::default());
         }
         let qspi_bus = crate::qspi::qspi_bus();
         (SdChipSelect::take().unwrap(), qspi_bus)
@@ -35,7 +37,11 @@ mod beaglev_fire {
                 } else {
                     SDCS_TAKEN = true;
                     Some(Self {
-                        pin: gpio::Pin::new(12, gpio::GpioPeripheral::Mss(pac::GPIO0_LO)),
+                        pin: gpio::Pin::new(
+                            12,
+                            gpio::GpioPeripheral::Mss(pac::GPIO0_LO),
+                            1000, // Never used
+                        ),
                     })
                 }
             })
@@ -43,7 +49,11 @@ mod beaglev_fire {
 
         unsafe fn steal() -> Self {
             Self {
-                pin: gpio::Pin::new(12, gpio::GpioPeripheral::Mss(pac::GPIO0_LO)),
+                pin: gpio::Pin::new(
+                    12,
+                    gpio::GpioPeripheral::Mss(pac::GPIO0_LO),
+                    1000, // Never used
+                ),
             }
         }
     }
@@ -68,6 +78,7 @@ mod beaglev_fire {
     //---------------------------------------------------------------------------
 
     use embedded_hal::digital::InputPin;
+    use embedded_hal_async::digital::Wait;
 
     static mut SD_DETECT_TAKEN: bool = false;
 
@@ -83,7 +94,11 @@ mod beaglev_fire {
                 } else {
                     SD_DETECT_TAKEN = true;
                     Some(Self {
-                        pin: gpio::Pin::new(31, gpio::GpioPeripheral::Mss(pac::GPIO2_LO)),
+                        pin: gpio::Pin::new(
+                            31,
+                            gpio::GpioPeripheral::Mss(pac::GPIO2_LO),
+                            gpio::SD_DETECT_INTERRUPT_IDX,
+                        ),
                     })
                 }
             })
@@ -91,7 +106,11 @@ mod beaglev_fire {
 
         unsafe fn steal() -> Self {
             Self {
-                pin: gpio::Pin::new(31, gpio::GpioPeripheral::Mss(pac::GPIO2_LO)),
+                pin: gpio::Pin::new(
+                    31,
+                    gpio::GpioPeripheral::Mss(pac::GPIO2_LO),
+                    gpio::SD_DETECT_INTERRUPT_IDX,
+                ),
             }
         }
     }
@@ -110,11 +129,51 @@ mod beaglev_fire {
         }
     }
 
-    // TODO: Interrupt
+    impl embedded_hal_async::digital::Wait for SdDetect {
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            if !self.pin.is_high() {
+                gpio::InputFuture::new(self.pin, gpio::InterruptTrigger::LevelHigh).await
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            if self.pin.is_high() {
+                gpio::InputFuture::new(self.pin, gpio::InterruptTrigger::LevelLow).await
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            gpio::InputFuture::new(self.pin, gpio::InterruptTrigger::EdgePositive).await
+        }
+
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            gpio::InputFuture::new(self.pin, gpio::InterruptTrigger::EdgeNegative).await
+        }
+
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            gpio::InputFuture::new(self.pin, gpio::InterruptTrigger::EdgeBoth).await
+        }
+    }
 
     impl SdDetect {
         pub fn is_inserted(&mut self) -> bool {
             self.is_low().unwrap()
+        }
+
+        pub async fn wait_for_inserted(
+            &mut self,
+        ) -> Result<(), <Self as embedded_hal::digital::ErrorType>::Error> {
+            self.wait_for_low().await
+        }
+
+        pub async fn wait_for_removed(
+            &mut self,
+        ) -> Result<(), <Self as embedded_hal::digital::ErrorType>::Error> {
+            self.wait_for_high().await
         }
     }
 }

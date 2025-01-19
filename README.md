@@ -10,7 +10,7 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 `mpfs-hal` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal)](https://crates.io/crates/mpfs-hal) [![Docs.rs](https://docs.rs/mpfs-hal/badge.svg)](https://docs.rs/mpfs-hal)<br />
 - [critical_section](https://github.com/rust-embedded/critical-section)
 - [embedded-alloc](https://github.com/rust-embedded/embedded-alloc) (`alloc` feature)
-- Board-specific GPIO ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/digital/index.html)) with (TODO) support for interrupts ([embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/digital/index.html))
+- Board-specific GPIO ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/digital/index.html)) with support for interrupts ([embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/digital/index.html))
 - UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/)) (Read TODO)
 - UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html)) `SpiBus`

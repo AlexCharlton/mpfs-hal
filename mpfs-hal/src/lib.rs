@@ -47,6 +47,12 @@ extern "C" {
 
 fn init_once() {
     unsafe {
+        pac::mss_config_clk_rst(
+            pac::mss_peripherals__MSS_PERIPH_CFM,
+            pac::MPFS_HAL_FIRST_HART as u8,
+            pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
+        );
+
         #[cfg(feature = "alloc")]
         init_heap();
         #[cfg(feature = "print")]
