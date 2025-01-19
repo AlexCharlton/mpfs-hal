@@ -40,7 +40,8 @@ mod beaglev_fire {
                         pin: gpio::Pin::new(
                             12,
                             gpio::GpioPeripheral::Mss(pac::GPIO0_LO),
-                            1000, // Never used
+                            255, // Never used
+                            255, // Never used
                         ),
                     })
                 }
@@ -52,7 +53,8 @@ mod beaglev_fire {
                 pin: gpio::Pin::new(
                     12,
                     gpio::GpioPeripheral::Mss(pac::GPIO0_LO),
-                    1000, // Never used
+                    255, // Never used
+                    255, // Never used
                 ),
             }
         }
@@ -98,6 +100,7 @@ mod beaglev_fire {
                             31,
                             gpio::GpioPeripheral::Mss(pac::GPIO2_LO),
                             gpio::SD_DETECT_INTERRUPT_IDX,
+                            255,
                         ),
                     })
                 }
@@ -110,6 +113,7 @@ mod beaglev_fire {
                     31,
                     gpio::GpioPeripheral::Mss(pac::GPIO2_LO),
                     gpio::SD_DETECT_INTERRUPT_IDX,
+                    255,
                 ),
             }
         }

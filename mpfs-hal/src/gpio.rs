@@ -1,3 +1,7 @@
+//! The MPFS broadly uses 2 GPIO interfaces: the MSS GPIO interface and the FPGA Core GPIO interface.
+//!
+//! On the BeagleV-Fire, P8_3 through P9_30 use the MSS GPIO interface. The remainder use the FPGA Core GPIO interface. Both interfaces are routed through the FPGA and thus depend on the FPGA configuration to work correctly. See the [Default cape gateware](https://git.beagleboard.org/beaglev-fire/gateware/-/tree/main/sources/FPGA-design/script_support/components/CAPE/DEFAULT) for the expected configuration. Note that if you want to use interrupts for the Core GPIO interface, "fixed config" needs to be disabled, or the interrupts need to be otherwise configured in the gateware. The [CoreGPIO_LCD.tcl](https://git.beagleboard.org/beaglev-fire/gateware/-/blob/main/sources/FPGA-design/script_support/components/CAPE/DEFAULT/CoreGPIO_LCD.tcl?ref_type=heads#L7) file controls this config for the P8 pins, while [CoreGPIO_P9.tcl](https://git.beagleboard.org/beaglev-fire/gateware/-/blob/main/sources/FPGA-design/script_support/components/CAPE/DEFAULT/CoreGPIO_P9.tcl?ref_type=heads)
+
 extern crate alloc;
 
 use core::convert::Infallible;
@@ -40,21 +44,24 @@ pub enum GpioPeripheral {
     FpgaCore(pac::gpio_instance_t),
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 pub struct Pin {
-    number: u32,
+    number: u8,
     peripheral: GpioPeripheral,
-    interrupt_idx: usize,
+    interrupt_idx: u8,
+    plic_idx: u8,
 }
 
 impl Pin {
     // Meant to be used only by board-support code
     #[doc(hidden)]
-    pub fn new(number: u32, peripheral: GpioPeripheral, interrupt_idx: usize) -> Self {
+    pub fn new(number: u8, peripheral: GpioPeripheral, interrupt_idx: u8, plic_idx: u8) -> Self {
         Self {
             number,
             peripheral,
             interrupt_idx,
+            plic_idx,
         }
     }
 
@@ -64,12 +71,12 @@ impl Pin {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
                     log::trace!("Configuring MSS GPIO {:?} to output", self);
-                    pac::MSS_GPIO_config(typedef, self.number, pac::MSS_GPIO_OUTPUT_MODE);
+                    pac::MSS_GPIO_config(typedef, self.number as u32, pac::MSS_GPIO_OUTPUT_MODE);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
                     log::trace!("Configuring FPGA Core GPIO {:?} to output", self);
-                    pac::GPIO_config(&mut address, self.number, pac::MSS_GPIO_OUTPUT_MODE);
+                    pac::GPIO_config(&mut address, self.number as u32, pac::MSS_GPIO_OUTPUT_MODE);
                 }
             }
         }
@@ -87,7 +94,7 @@ impl Pin {
                     );
                     pac::MSS_GPIO_config(
                         typedef,
-                        self.number,
+                        self.number as u32,
                         pac::MSS_GPIO_INPUT_MODE | config as u32,
                     );
                 }
@@ -100,7 +107,7 @@ impl Pin {
                     );
                     pac::GPIO_config(
                         &mut address,
-                        self.number,
+                        self.number as u32,
                         pac::MSS_GPIO_INPUT_MODE | config as u32,
                     );
                 }
@@ -114,7 +121,7 @@ impl Pin {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
                     log::trace!("Setting MSS GPIO {:?} to high", typedef);
-                    pac::MSS_GPIO_set_output(typedef, self.number, 1);
+                    pac::MSS_GPIO_set_output(typedef, self.number as u32, 1);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
@@ -137,7 +144,7 @@ impl Pin {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
                     log::trace!("Setting MSS GPIO {:?} to low", self);
-                    pac::MSS_GPIO_set_output(typedef, self.number, 0);
+                    pac::MSS_GPIO_set_output(typedef, self.number as u32, 0);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
@@ -175,26 +182,29 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
-                    pac::MSS_GPIO_enable_irq(typedef, self.number);
+                    pac::MSS_GPIO_enable_irq(typedef, self.number as u32);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
-                    pac::GPIO_enable_irq(&mut address, self.number);
+                    pac::GPIO_enable_irq(&mut address, self.number as u32);
+                    pac::PLIC_EnableIRQ(self.plic_idx as u32);
                 }
             }
         }
     }
 
     unsafe fn triggered(&self) -> bool {
-        GPIO_INTERRUPTS[self.interrupt_idx].triggered
+        GPIO_INTERRUPTS[self.interrupt_idx as usize].triggered
     }
 
     unsafe fn set_waker(&mut self, waker: Waker) {
-        GPIO_INTERRUPTS[self.interrupt_idx].waker = Some(waker);
+        GPIO_INTERRUPTS[self.interrupt_idx as usize].waker = Some(waker);
     }
 }
 
+/// All GPIO pins implement this trait
 pub trait GpioPin: 'static {
+    #[doc(hidden)]
     fn address(&self) -> Pin;
 }
 
@@ -269,7 +279,7 @@ pub struct InputFuture {
 impl InputFuture {
     pub fn new(pin: Pin, interrupt_trigger: InterruptTrigger) -> Self {
         critical_section::with(|_| unsafe {
-            GPIO_INTERRUPTS[pin.interrupt_idx].triggered = false;
+            GPIO_INTERRUPTS[pin.interrupt_idx as usize].triggered = false;
         });
         match interrupt_trigger {
             InterruptTrigger::LevelHigh => {
@@ -343,13 +353,19 @@ impl embedded_hal_async::digital::Wait for Input {
 //----------------------------------------------------------------------
 
 macro_rules! impl_mss_gpio_pin {
-    ($pin:ident, $n:expr, $peripheral:expr, $interrupt_idx:expr, $interrupt_handler:ident) => {
+    ($pin:ident, $n:expr, $peripheral:expr, $interrupt_idx:expr, $interrupt_handler:ident, $plic_idx:expr) => {
         paste! {
-            impl_mss_gpio_pin!($pin, [<$pin _TAKEN>], [<$pin _INTERRUPT>], $n, $peripheral, $interrupt_idx, $interrupt_handler);
+            impl_mss_gpio_pin!($pin, [<$pin _TAKEN>], [<$pin _INTERRUPT>], $n, $peripheral, $interrupt_idx, $interrupt_handler, $plic_idx);
         }
     };
 
-    ($PIN:ident, $PIN_TAKEN:ident, $PIN_INTERRUPT:ident, $num:expr, $peripheral:expr, $interrupt_idx:expr, $interrupt_handler:ident) => {
+    ($pin:ident, $n:expr, $peripheral:expr, $interrupt_idx:expr, $interrupt_handler:ident) => {
+        paste! {
+            impl_mss_gpio_pin!($pin, [<$pin _TAKEN>], [<$pin _INTERRUPT>], $n, $peripheral, $interrupt_idx, $interrupt_handler, 255);
+        }
+    };
+
+    ($PIN:ident, $PIN_TAKEN:ident, $PIN_INTERRUPT:ident, $num:expr, $peripheral:expr, $interrupt_idx:expr, $interrupt_handler:ident, $plic_idx:expr) => {
         pub struct $PIN {
             _private: (),
         }
@@ -378,6 +394,7 @@ macro_rules! impl_mss_gpio_pin {
                     number: $num,
                     peripheral: $peripheral,
                     interrupt_idx: $interrupt_idx,
+                    plic_idx: $plic_idx as u8,
                 }
             }
         }
@@ -392,11 +409,11 @@ macro_rules! impl_mss_gpio_pin {
             unsafe {
                 match $peripheral {
                     GpioPeripheral::Mss(addr) => {
-                        pac::MSS_GPIO_clear_irq(addr, $interrupt_idx);
+                        pac::MSS_GPIO_clear_irq(addr, $num);
                     }
                     GpioPeripheral::FpgaCore(addr) => {
                         let mut address = addr;
-                        pac::GPIO_clear_irq(&mut address, $interrupt_idx);
+                        pac::GPIO_clear_irq(&mut address, $num);
                     }
                 }
             }
@@ -428,6 +445,7 @@ mod beaglev_fire {
         apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
     };
 
+    /// To be called before using any GPIO pins
     pub fn init() {
         unsafe {
             // GPIO2 initialization
@@ -449,6 +467,12 @@ mod beaglev_fire {
             let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
             log::trace!("Initializing FPGA Core GPIO {:?}", p9);
             pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
+
+            for i in pac::PLIC_IRQn_Type_PLIC_F2M_8_INT_OFFSET
+                ..=pac::PLIC_IRQn_Type_PLIC_F2M_43_INT_OFFSET
+            {
+                pac::PLIC_SetPriority(i, 2);
+            }
         }
     }
 
@@ -509,7 +533,8 @@ mod beaglev_fire {
         0,
         GpioPeripheral::Mss(pac::GPIO2_LO),
         0,
-        // The first 14 GPIO2 handlers seem to be misnamed
+        // The first 14 GPIO2 handlers are misnamed
+        // This one handles GPIO2[0]
         PLIC_gpio0_bit0_or_gpio2_bit13_IRQHandler
     );
     impl_mss_gpio_pin!(
@@ -693,170 +718,193 @@ mod beaglev_fire {
         0,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         26,
-        PLIC_f2m_0_IRQHandler
+        PLIC_f2m_8_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_8_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_32,
         1,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         27,
-        PLIC_f2m_1_IRQHandler
+        PLIC_f2m_9_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_9_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_33,
         2,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         28,
-        PLIC_f2m_2_IRQHandler
+        PLIC_f2m_10_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_10_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_34,
         3,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         29,
-        PLIC_f2m_3_IRQHandler
+        PLIC_f2m_11_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_11_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_35,
         4,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         30,
-        PLIC_f2m_4_IRQHandler
+        PLIC_f2m_12_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_12_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_36,
         5,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         31,
-        PLIC_f2m_5_IRQHandler
+        PLIC_f2m_13_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_13_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_37,
         6,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         32,
-        PLIC_f2m_6_IRQHandler
+        PLIC_f2m_14_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_14_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_38,
         7,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         33,
-        PLIC_f2m_7_IRQHandler
+        PLIC_f2m_15_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_15_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_39,
         8,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         34,
-        PLIC_f2m_8_IRQHandler
+        PLIC_f2m_16_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_16_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_40,
         9,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         35,
-        PLIC_f2m_9_IRQHandler
+        PLIC_f2m_17_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_17_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_41,
         10,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         36,
-        PLIC_f2m_10_IRQHandler
+        PLIC_f2m_18_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_18_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_42,
         11,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         37,
-        PLIC_f2m_11_IRQHandler
+        PLIC_f2m_19_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_19_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_43,
         12,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         38,
-        PLIC_f2m_12_IRQHandler
+        PLIC_f2m_20_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_20_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_44,
         13,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         39,
-        PLIC_f2m_13_IRQHandler
+        PLIC_f2m_21_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_21_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_45,
         14,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         40,
-        PLIC_f2m_14_IRQHandler
+        PLIC_f2m_22_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_22_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P8_46,
         15,
         GpioPeripheral::FpgaCore(P8_CORE_GPIO),
         41,
-        PLIC_f2m_15_IRQHandler
+        PLIC_f2m_23_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_23_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_12,
         1,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         42,
-        PLIC_f2m_16_IRQHandler
+        PLIC_f2m_25_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_25_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_15,
         4,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         43,
-        PLIC_f2m_17_IRQHandler
+        PLIC_f2m_28_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_28_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_23,
         10,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         44,
-        PLIC_f2m_18_IRQHandler
+        PLIC_f2m_34_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_34_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_25,
         12,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         45,
-        PLIC_f2m_19_IRQHandler
+        PLIC_f2m_36_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_36_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_27,
         14,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         46,
-        PLIC_f2m_20_IRQHandler
+        PLIC_f2m_38_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_38_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_30,
         17,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         47,
-        PLIC_f2m_21_IRQHandler
+        PLIC_f2m_41_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_41_INT_OFFSET
     );
     impl_mss_gpio_pin!(
         P9_41,
         19,
         GpioPeripheral::FpgaCore(P9_CORE_GPIO),
         48,
-        PLIC_f2m_22_IRQHandler
+        PLIC_f2m_43_IRQHandler,
+        pac::PLIC_IRQn_Type_PLIC_F2M_43_INT_OFFSET
     );
 
     // SD card detect interrupt handler
     #[doc(hidden)]
-    pub const SD_DETECT_INTERRUPT_IDX: usize = 49;
+    pub const SD_DETECT_INTERRUPT_IDX: u8 = 49;
 
     #[no_mangle]
     extern "C" fn PLIC_gpio1_bit17_or_gpio2_bit31_IRQHandler() -> u8 {
-        let interrupt = unsafe { &mut GPIO_INTERRUPTS[SD_DETECT_INTERRUPT_IDX] };
+        let interrupt = unsafe { &mut GPIO_INTERRUPTS[SD_DETECT_INTERRUPT_IDX as usize] };
         if let Some(waker) = interrupt.waker.take() {
             interrupt.triggered = true;
             waker.wake();
