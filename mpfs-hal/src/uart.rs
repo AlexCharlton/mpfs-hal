@@ -3,7 +3,9 @@ use embassy_embedded_hal::SetConfig;
 use paste::paste;
 
 pub trait UartPeripheral {
+    #[doc(hidden)]
     fn address(&self) -> *mut pac::mss_uart_instance_t;
+    #[doc(hidden)]
     fn number(&self) -> u8;
 }
 

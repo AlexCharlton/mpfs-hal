@@ -3,7 +3,7 @@
 #[cfg(feature = "alloc")]
 mod alloc;
 #[cfg(feature = "alloc")]
-pub use alloc::init_heap;
+use alloc::init_heap;
 
 mod critical_section_impl;
 critical_section::set_impl!(critical_section_impl::MPFSCriticalSection);

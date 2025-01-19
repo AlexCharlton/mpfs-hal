@@ -5,7 +5,7 @@ extern crate alloc;
 mod executor;
 pub use executor::Executor;
 
-pub mod time_driver;
+mod time_driver;
 
 pub mod qspi;
 
