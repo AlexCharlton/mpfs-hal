@@ -10,8 +10,8 @@ mod beaglev_fire {
         &'static mut Mutex<CriticalSectionRawMutex, qspi::Qspi>,
     ) {
         unsafe {
+            gpio::init();
             pac::MSS_GPIO_init(pac::GPIO0_LO);
-            pac::MSS_GPIO_init(pac::GPIO2_LO);
             SdChipSelect::steal().pin.config_output();
             SdDetect::steal()
                 .pin

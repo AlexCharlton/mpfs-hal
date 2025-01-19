@@ -544,6 +544,7 @@ dependencies = [
  "embassy-time-queue-utils",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
+ "log",
  "mpfs-hal",
  "mpfs-hal-procmacros",
  "static_cell",
