@@ -18,10 +18,8 @@ debug-logs = ["mpfs-hal/debug-logs"]
 beaglev-fire = ["mpfs-hal/beaglev-fire"]
 
 [dependencies]
-mpfs-hal = { version = "0.1", path = "../mpfs-hal", features = [] }
-mpfs-hal-procmacros = { version = "0.1", path = "../mpfs-hal-procmacros", features = [
-    "embassy",
-] }
+mpfs-hal = { workspace = true, features = ["alloc"] }
+mpfs-hal-procmacros = { workspace = true, features = ["embassy"] }
 
 critical-section = { workspace = true }
 embassy-executor = { workspace = true, features = ["executor-thread"] }
