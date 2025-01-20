@@ -10,7 +10,7 @@ keywords = ["mpfs", "polarfire", "hal", "embedded-hal"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64gc-unknown-none-elf"
-features = ["alloc", "print", "log", "beaglev-fire"]
+features = []
 
 [features]
 default = ["alloc", "print", "log", "log-colors", "beaglev-fire"]

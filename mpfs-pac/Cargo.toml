@@ -15,7 +15,7 @@ bench = false
 
 [package.metadata.docs.rs]
 default-target = "riscv64gc-unknown-none-elf"
-features = ["beaglev-fire"]
+features = []
 
 [features]
 default = ["beaglev-fire"]

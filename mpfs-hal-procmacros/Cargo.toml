@@ -1,6 +1,6 @@
 [package]
 name = "mpfs-hal-procmacros"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Procedural macros for mpfs-hal"
@@ -8,6 +8,7 @@ repository = "https://github.com/AlexCharlton/mpfs-hal"
 
 [package.metadata.docs.rs]
 default-target = "riscv64gc-unknown-none-elf"
+features = ["embassy"]
 
 [dependencies]
 syn = { version = "2.0", features = ["full"] }
