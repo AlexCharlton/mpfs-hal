@@ -1,4 +1,4 @@
-# MPFS PAC
+# mpfs-pac
 
 This is a Peripheral Access Crate (PAC) for the Microchip PolarFire SoC. It is build on the Mirochip-provided [platform](https://github.com/polarfire-soc/platform) and bindgen.
 
