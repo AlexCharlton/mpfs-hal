@@ -3,13 +3,13 @@
 This repository contains a hardware abstraction layer for the Microchip PolarFire SoC, built on the Mirochip-provided [platform](https://github.com/polarfire-soc/platform), as well as [Embassy](https://github.com/embassy-rs/embassy) support and a TTY application which can flash images to a board that is using the [HSS](https://github.com/polarfire-soc/hss) bootloader.
 
 > [!NOTE]
-> This repository is an early work in progress. See crate descriptions below for details about what features are supported. Currently only the BeagleV-Fire board is targeted, but additional board support should be fairly straightforward.
+> This repository is an early work in progress. See the crate descriptions below for details about what features are supported. Currently only the BeagleV-Fire board is targeted, but additional board support should be fairly straightforward.
 
 **Primary crates**:
 
 `mpfs-hal` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal)](https://crates.io/crates/mpfs-hal) [![Docs.rs](https://docs.rs/mpfs-hal/badge.svg)](https://docs.rs/mpfs-hal)<br />
 - [critical_section](https://github.com/rust-embedded/critical-section)
-- [embedded-alloc](https://github.com/rust-embedded/embedded-alloc) (`alloc` feature)
+- [alloc](https://doc.rust-lang.org/alloc/) support via [embedded-alloc](https://github.com/rust-embedded/embedded-alloc) (`alloc` feature)
 - Board-specific GPIO ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/digital/index.html)) with support for interrupts ([embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/digital/index.html))
 - UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/)) (Read TODO)
 - UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
