@@ -431,6 +431,9 @@ macro_rules! impl_gpio_pin {
 pub use beaglev_fire::*;
 #[cfg(feature = "beaglev-fire")]
 mod beaglev_fire {
+    // TODO: configure based on what cape is being applied
+    // Can we provide some user-customization?
+    // https://docs.beagle.cc/boards/beaglev/fire/04-expansion.html
     use super::*;
     use crate::pac;
     use paste::paste;

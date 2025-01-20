@@ -11,4 +11,9 @@
 #include "platform/drivers/mss/mss_sys_services/mss_sys_services.h"
 #include "platform/drivers/mss/pf_pcie/pf_pcie.h"
 
+#include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_registers.h"
+#include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac_regs.h"
+#include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac_sw_cfg.h"
+#include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac.h"
+
 #include "platform/drivers/fpga_ip/CoreGPIO/core_gpio.h"

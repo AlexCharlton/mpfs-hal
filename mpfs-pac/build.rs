@@ -30,7 +30,7 @@ fn main() {
             let is_c_file = path.extension().map_or(false, |ext| ext == "c");
             let path_str = path.to_string_lossy().replace('\\', "/");
             let in_mss = path_str.contains("mpfs-platform/platform/drivers/mss");
-            let mss_skip = path_str.contains("mss_ethernet_mac") || path_str.contains("mss_spi");
+            let mss_skip = path_str.contains("mss_spi");
             let in_fpga_ip = path_str.contains("mpfs-platform/platform/drivers/fpga_ip");
             let fpga_include = path_str.contains("core_gpio");
 
@@ -57,6 +57,11 @@ fn main() {
 
     let board_include = format!("mpfs-platform/boards/{}", board);
     let board_config_include = format!("mpfs-platform/boards/{}/platform_config", board);
+    let target_board_define = if cfg!(feature = "beaglev-fire") {
+        "TARGET_BEAGLEV_FIRE"
+    } else {
+        panic!("No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)")
+    };
 
     build
         .flag("-march=rv64gc")
@@ -71,6 +76,9 @@ fn main() {
         .flag("-fsigned-char")
         .flag("-g")
         .define("NDEBUG", None)
+        .define("TARGET_G5_SOC", None) // Is this really right?
+        .define("MSS_MAC_SIMPLE_TX_QUEUE", None)
+        .define(target_board_define, None)
         .includes(&[
             "mpfs-platform/application",
             "mpfs-platform/platform",
@@ -132,6 +140,7 @@ fn generate_bindings() {
         .clang_args(&[
             "-Impfs-platform",
             "-Impfs-platform/platform",
+            "-DTARGET_G5_SOC",
             &board_include,
             &board_config_include,
         ])
