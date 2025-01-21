@@ -9,6 +9,14 @@ fn get_board_path() -> &'static str {
     }
 }
 
+fn get_target_board_define() -> &'static str {
+    if cfg!(feature = "beaglev-fire") {
+        "TARGET_BEAGLEV_FIRE"
+    } else {
+        panic!("No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)")
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=mpfs-platform");
     println!("cargo:rerun-if-changed=build.rs");
@@ -57,12 +65,6 @@ fn main() {
 
     let board_include = format!("mpfs-platform/boards/{}", board);
     let board_config_include = format!("mpfs-platform/boards/{}/platform_config", board);
-    let target_board_define = if cfg!(feature = "beaglev-fire") {
-        "TARGET_BEAGLEV_FIRE"
-    } else {
-        panic!("No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)")
-    };
-
     build
         .flag("-march=rv64gc")
         .flag("-mabi=lp64d")
@@ -78,7 +80,7 @@ fn main() {
         .define("NDEBUG", None)
         .define("TARGET_G5_SOC", None) // Is this really right?
         .define("MSS_MAC_SIMPLE_TX_QUEUE", None)
-        .define(target_board_define, None)
+        .define(get_target_board_define(), None)
         .includes(&[
             "mpfs-platform/application",
             "mpfs-platform/platform",
@@ -141,6 +143,7 @@ fn generate_bindings() {
             "-Impfs-platform",
             "-Impfs-platform/platform",
             "-DTARGET_G5_SOC",
+            &format!("-D{}", get_target_board_define()),
             &board_include,
             &board_config_include,
         ])

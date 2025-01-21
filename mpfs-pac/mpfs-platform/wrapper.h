@@ -15,5 +15,6 @@
 #include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac_regs.h"
 #include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac_sw_cfg.h"
 #include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac.h"
+#include "platform/drivers/mss/mss_ethernet_mac/phy.h"
 
 #include "platform/drivers/fpga_ip/CoreGPIO/core_gpio.h"
