@@ -3,6 +3,8 @@
 
 extern crate alloc;
 
+use embassy_time::Timer;
+
 #[macro_use]
 extern crate mpfs_hal;
 
@@ -19,11 +21,13 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     println!("Hello");
     /*
     void mac_task(void *pvParameters) {
-        SYSREG->SOFT_RESET_CR = 0U;
-        SYSREG->SUBBLK_CLOCK_CR = 0xFFFFFFFFUL;
     */
+    unsafe {
+        (*pac::SYSREG).SOFT_RESET_CR = 0;
+        (*pac::SYSREG).SUBBLK_CLOCK_CR = 0xFFFFFFFF;
+    }
 
-    low_level_init();
+    low_level_init().await;
 
     /*
     display_clocks();
@@ -33,23 +37,27 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     */
 }
 
-fn low_level_init() {
+static mut rx_buffer: [[u8; pac::MSS_MAC_RX_RING_SIZE as usize];
+    pac::MSS_MAC_MAX_RX_BUF_SIZE as usize] =
+    [[0; pac::MSS_MAC_RX_RING_SIZE as usize]; pac::MSS_MAC_MAX_RX_BUF_SIZE as usize];
+
+async fn low_level_init() {
     let mut config = pac::mss_mac_cfg_t {
-        interface_type: pac::TBI,
+        phy_addr: pac::PHY_RTL8211_MDIO_ADDR,
         phy_type: pac::MSS_MAC_DEV_PHY_RTL8211,
-        phy_init: Some(pac::MSS_MAC_RTL8211_phy_init),
-        phy_set_link_speed: Some(pac::MSS_MAC_RTL8211_phy_set_link_speed),
+        pcs_phy_addr: pac::SGMII_MDIO_ADDR,
+        interface_type: pac::TBI,
         phy_autonegotiate: Some(pac::MSS_MAC_RTL8211_phy_autonegotiate),
         phy_mac_autonegotiate: Some(pac::MSS_MAC_RTL8211_mac_autonegotiate),
         phy_get_link_status: Some(pac::MSS_MAC_RTL8211_phy_get_link_status),
+        phy_init: Some(pac::MSS_MAC_RTL8211_phy_init),
+        phy_set_link_speed: Some(pac::MSS_MAC_RTL8211_phy_set_link_speed),
         phy_extended_read: Some(pac::NULL_mmd_read_extended_regs),
         phy_extended_write: Some(pac::NULL_mmd_write_extended_regs),
         queue_enable: [0; 4],
         speed_mode: pac::__mss_mac_speed_mode_t_MSS_MAC_SPEED_AN,
         speed_duplex_select: pac::MSS_MAC_ANEG_ALL_SPEEDS,
         mac_addr: [0x00, 0xFC, 0x00, 0x12, 0x34, 0x56],
-        phy_addr: pac::PHY_RTL8211_MDIO_ADDR,
-        pcs_phy_addr: pac::SGMII_MDIO_ADDR,
         phy_controller: core::ptr::null_mut(),
         tx_edc_enable: 0,
         rx_edc_enable: 0,
@@ -92,63 +100,69 @@ fn low_level_init() {
 
         /* Allocate all 4 segments to queue 0 as this is our only one... */
         (*mac.mac_base).TX_Q_SEG_ALLOC_Q0TO3 = 2;
-
         (*mac.mac_base).NETWORK_CONTROL |= 0x8;
 
         pac::MSS_MAC_set_tx_callback(mac, 0, Some(packet_tx_complete_handler));
         pac::MSS_MAC_set_rx_callback(mac, 0, Some(mac_rx_callback));
 
-        //pac::MSS_MAC_tx_enable(mac);
-    }
+        // Allocate receive buffers for all slots in the ring
+        for i in 0..pac::MSS_MAC_RX_RING_SIZE as usize {
+            let enable_interrupts = if i == (pac::MSS_MAC_RX_RING_SIZE as usize - 1) {
+                -1 // Enable interrupts for last buffer
+            } else {
+                0 // Keep interrupts disabled for all other buffers
+            };
 
-    println!("MAC initialized");
-    /*
-
-        /*
-         * Allocate receive buffers.
-         *
-         * We prime the pump with a full set of packet buffers and then re use them
-         * as each packet is handled.
-         *
-         * This function will need to be called each time a packet is received to
-         * hand back the receive buffer to the MAC driver.
-         */
-        for (count = 0; count < MSS_MAC_RX_RING_SIZE; ++count)
-        {
-            /*
-             * We allocate the buffers with the Ethernet MAC interrupt disabled
-             * until we get to the last one. For the last one we ensure the Ethernet
-             * MAC interrupt is enabled on return from MSS_MAC_receive_pkt().
-             */
-    #if defined(MSS_MAC_USE_DDR)
-            if (count != (MSS_MAC_RX_RING_SIZE - 1))
-            {
-                MSS_MAC_receive_pkt(g_test_mac,
-                                    0,
-                                    g_mac_rx_buffer + count * MSS_MAC_MAX_RX_BUF_SIZE,
-                                    0,
-                                    0);
-            }
-            else
-            {
-                MSS_MAC_receive_pkt(g_test_mac,
-                                    0,
-                                    g_mac_rx_buffer + count * MSS_MAC_MAX_RX_BUF_SIZE,
-                                    0,
-                                    -1);
-            }
-    #else
-            if (count != (MSS_MAC_RX_RING_SIZE - 1))
-            {
-                MSS_MAC_receive_pkt(g_test_mac, 0, g_mac_rx_buffer[count], 0, 0);
-            }
-            else
-            {
-                MSS_MAC_receive_pkt(g_test_mac, 0, g_mac_rx_buffer[count], 0, -1);
-            }
-    #endif
+            pac::MSS_MAC_receive_pkt(
+                mac,
+                0,
+                rx_buffer[i].as_mut_ptr(),
+                core::ptr::null_mut(),
+                enable_interrupts,
+            );
         }
-         */
+
+        pac::MSS_MAC_tx_enable(mac);
+        println!("MAC initialized");
+
+        let mut last_rtl_regs = [0u16; 32];
+        dump_rtl_regs(mac);
+        println!("Initial RTL regs:");
+        last_rtl_regs.copy_from_slice(&RTL_reg_0);
+        RTL_reg_0
+            .iter()
+            .enumerate()
+            .for_each(|(i, x)| println!("{:02}: {:#018b}", i, x));
+
+        let mut test_speed = pac::__mss_mac_speed_t_MSS_MAC_1000MBPS;
+        let mut test_fullduplex = 0;
+        loop {
+            let test_linkup =
+                pac::MSS_MAC_get_link_status(mac, &mut test_speed, &mut test_fullduplex);
+            println!(
+                "Link status: {}; speed: {}; full duplex: {}",
+                test_linkup, test_speed, test_fullduplex
+            );
+            config
+                .phy_mac_autonegotiate
+                .map(|f| f(mac as *mut _ as *const core::ffi::c_void));
+            println!("Finished autonegotiation");
+            dump_rtl_regs(mac);
+            println!("Changed RTL regs:");
+            RTL_reg_0
+                .iter()
+                .enumerate()
+                .filter(|(i, &x)| x != last_rtl_regs[*i])
+                .for_each(|(i, x)| {
+                    println!("{:02}: {:#018b} (was {:#018b})", i, x, last_rtl_regs[i])
+                });
+
+            last_rtl_regs.copy_from_slice(&RTL_reg_0);
+            Timer::after_millis(10000).await;
+        }
+    }
+    // TODO:
+    // - Try sending something
 }
 
 #[mpfs_hal::init_once]
@@ -174,10 +188,16 @@ extern "C" fn packet_tx_complete_handler(
 extern "C" fn mac_rx_callback(
     mac: *mut core::ffi::c_void,
     queue: u32,
-    rx_buffer: *mut u8,
+    rx_buf: *mut u8,
     rx_size: u32,
     rx_desc: *mut pac::mss_mac_rx_desc,
     marker: *mut core::ffi::c_void,
 ) {
     println!("MAC rx callback");
+}
+
+// Declare the external C array and function
+extern "C" {
+    static mut RTL_reg_0: [u16; 32];
+    fn dump_rtl_regs(this_mac: *const pac::mss_mac_instance_t);
 }
