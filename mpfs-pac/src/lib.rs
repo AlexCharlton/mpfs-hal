@@ -11,6 +11,8 @@ pub use clint::*;
 mod encoding;
 pub use encoding::*;
 
+mod ethernet;
+pub use ethernet::*;
 mod gpio;
 pub use gpio::*;
 

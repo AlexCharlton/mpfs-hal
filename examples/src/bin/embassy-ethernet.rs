@@ -158,6 +158,12 @@ async fn low_level_init() {
                 });
 
             last_rtl_regs.copy_from_slice(&RTL_reg_0);
+
+            (*mac.mac_base).NETWORK_CONTROL &= !(pac::GEM_PFC_CTRL);
+            (*mac.mac_base).NETWORK_CONFIG &= !(pac::GEM_PAUSE_ENABLE);
+            (*mac.mac_base).NETWORK_CONTROL |= pac::GEM_TX_PAUSE_FRAME_REQ;
+            println!("Transmited Pause Frame");
+
             Timer::after_millis(10000).await;
         }
     }
