@@ -18,10 +18,23 @@ use mpfs_hal::pac;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    println!("Hello");
-    /*
-    void mac_task(void *pvParameters) {
-    */
+    println!("Starting");
+
+    // Print alignment info for our static buffers
+    unsafe {
+        let rx_ptr = &rx_buffer as *const _ as usize;
+        let tx_ptr = &tx_pak_arp as *const _ as usize;
+
+        println!(
+            "rx_buffer offset for 4-byte align: {}",
+            (4 - (rx_ptr & 0x3)) & 0x3
+        );
+        println!(
+            "tx_pak_arp offset for 4-byte align: {}",
+            (4 - (tx_ptr & 0x3)) & 0x3
+        );
+    }
+
     unsafe {
         (*pac::SYSREG).SOFT_RESET_CR = 0;
         (*pac::SYSREG).SUBBLK_CLOCK_CR = 0xFFFFFFFF;
@@ -40,6 +53,17 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 static mut rx_buffer: [[u8; pac::MSS_MAC_RX_RING_SIZE as usize];
     pac::MSS_MAC_MAX_RX_BUF_SIZE as usize] =
     [[0; pac::MSS_MAC_RX_RING_SIZE as usize]; pac::MSS_MAC_MAX_RX_BUF_SIZE as usize];
+
+static mut tx_pak_arp: [u8; 128] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFC, 0x00, 0x12, 0x34, 0x56, 0x08, 0x06, 0x00, 0x01,
+    0x08, 0x00, 0x06, 0x04, 0x00, 0x01, 0xFC, 0x00, 0x12, 0x34, 0x56, 0x0A, 0x02, 0x02, 0x02, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x02, 0x02, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+];
 
 async fn low_level_init() {
     let mut config = pac::mss_mac_cfg_t {
@@ -85,7 +109,7 @@ async fn low_level_init() {
     };
 
     unsafe {
-        pac::MSS_MAC_cfg_struct_def_init(&mut config);
+        println!("Config initialized: {:#?}", config);
         #[allow(static_mut_refs)]
         let mac = &mut pac::g_mac0;
         pac::MSS_MAC_init(mac, &mut config as *mut _);
@@ -125,6 +149,21 @@ async fn low_level_init() {
         pac::MSS_MAC_tx_enable(mac);
         println!("MAC initialized");
 
+        // Copy MAC address into the ARP packet
+        tx_pak_arp[6..12].copy_from_slice(&mac.mac_addr);
+
+        let tx_status = pac::MSS_MAC_send_pkt(
+            mac,
+            0,
+            tx_pak_arp.as_ptr(),
+            tx_pak_arp.len() as u32,
+            core::ptr::null_mut(),
+        );
+
+        println!("TX status: {}", tx_status);
+
+        return;
+
         let mut last_rtl_regs = [0u16; 32];
         dump_rtl_regs(mac);
         println!("Initial RTL regs:");
@@ -143,10 +182,10 @@ async fn low_level_init() {
                 "Link status: {}; speed: {}; full duplex: {}",
                 test_linkup, test_speed, test_fullduplex
             );
-            config
-                .phy_mac_autonegotiate
-                .map(|f| f(mac as *mut _ as *const core::ffi::c_void));
-            println!("Finished autonegotiation");
+            // config
+            //     .phy_mac_autonegotiate
+            //     .map(|f| f(mac as *mut _ as *const core::ffi::c_void));
+            // println!("Finished autonegotiation");
             dump_rtl_regs(mac);
             println!("Changed RTL regs:");
             RTL_reg_0
@@ -159,12 +198,20 @@ async fn low_level_init() {
 
             last_rtl_regs.copy_from_slice(&RTL_reg_0);
 
-            (*mac.mac_base).NETWORK_CONTROL &= !(pac::GEM_PFC_CTRL);
-            (*mac.mac_base).NETWORK_CONFIG &= !(pac::GEM_PAUSE_ENABLE);
-            (*mac.mac_base).NETWORK_CONTROL |= pac::GEM_TX_PAUSE_FRAME_REQ;
-            println!("Transmited Pause Frame");
+            // Copy MAC address into the ARP packet
+            tx_pak_arp[6..12].copy_from_slice(&mac.mac_addr);
 
-            Timer::after_millis(10000).await;
+            let tx_status = pac::MSS_MAC_send_pkt(
+                mac,
+                0,
+                tx_pak_arp.as_ptr(),
+                tx_pak_arp.len() as u32,
+                core::ptr::null_mut(),
+            );
+
+            println!("TX status: {}", tx_status);
+
+            Timer::after_millis(5000).await;
         }
     }
     // TODO:
@@ -200,6 +247,9 @@ extern "C" fn mac_rx_callback(
     marker: *mut core::ffi::c_void,
 ) {
     println!("MAC rx callback");
+    unsafe {
+        pac::MSS_MAC_receive_pkt(mac as *mut _, 0, rx_buf, core::ptr::null_mut(), 1);
+    }
 }
 
 // Declare the external C array and function
