@@ -8,8 +8,8 @@ use embassy_time::Timer;
 #[macro_use]
 extern crate mpfs_hal;
 
+use embassy_net_driver::{Driver, HardwareAddress, TxToken};
 use mpfs_hal::ethernet::{EthernetDevice, MAC0};
-use mpfs_hal::pac;
 use mpfs_hal::Peripheral;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
@@ -17,11 +17,10 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     println!("Starting");
     let mut device =
         EthernetDevice::new(MAC0::take().unwrap(), [0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
-    run().await;
+    run(&mut device).await;
 }
 
-// Needs to be 8 byte aligned
-static mut tx_pak_arp: [u8; 128] = [
+const TX_PAK_ARP: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFC, 0x00, 0x12, 0x34, 0x56, 0x08, 0x06, 0x00, 0x01,
     0x08, 0x00, 0x06, 0x04, 0x00, 0x01, 0xFC, 0x00, 0x12, 0x34, 0x56, 0x0A, 0x02, 0x02, 0x02, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x02, 0x02, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -32,57 +31,55 @@ static mut tx_pak_arp: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
-async fn run() {
-    unsafe {
-        let mac = &mut pac::g_mac0;
-        println!("Running");
-        let mut test_speed = pac::__mss_mac_speed_t_MSS_MAC_1000MBPS;
-        let mut test_fullduplex = 0;
+use core::task::{RawWaker, RawWakerVTable, Waker};
+// Define the vtable for our noop waker
+const NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+    |_| RawWaker::new(core::ptr::null(), &NOOP_WAKER_VTABLE), // clone
+    |_| {},                                                   // wake
+    |_| {},                                                   // wake_by_ref
+    |_| {},                                                   // drop
+);
 
-        // Disable transmit while configuring queue
-        (*mac.mac_base).NETWORK_CONTROL &= !pac::GEM_ENABLE_TRANSMIT;
-        (*mac.mac_base).UPPER_TX_Q_BASE_ADDR = (&tx_pak_arp as *const _ as u64 >> 32) as u32;
-        (*mac.mac_base).NETWORK_CONTROL |= pac::GEM_ENABLE_TRANSMIT;
+fn create_noop_waker() -> Waker {
+    // Safety: The vtable contains valid function pointers and we never
+    // use the data pointer for anything
+    unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &NOOP_WAKER_VTABLE)) }
+}
 
-        loop {
-            let test_linkup =
-                pac::MSS_MAC_get_link_status(mac, &mut test_speed, &mut test_fullduplex);
-            println!(
-                "Link status: {}; speed: {}; full duplex: {}",
-                test_linkup, test_speed, test_fullduplex
-            );
+async fn run(device: &mut EthernetDevice<MAC0>) {
+    println!("Running");
+    let waker = create_noop_waker();
+    let mut cx = core::task::Context::from_waker(&waker);
+    let addr = device.hardware_address();
+    let mac_addr = match addr {
+        HardwareAddress::Ethernet(mac) => mac,
+        _ => panic!("Expected MAC address"),
+    };
 
-            if test_linkup != 0 {
-                // Copy MAC address into the ARP packet
-                tx_pak_arp[6..12].copy_from_slice(&mac.mac_addr);
+    loop {
+        let link_state = device.link_state(&mut cx);
+        println!(
+            "Link up? {:?}; Link speed: {:?}",
+            link_state == embassy_net_driver::LinkState::Up,
+            device.link_speed()
+        );
 
+        if link_state == embassy_net_driver::LinkState::Up {
+            let tx_token = device.transmit(&mut cx).unwrap();
+            tx_token.consume(TX_PAK_ARP.len(), |buf| {
                 println!("Sending ARP",);
-
-                let tx_status = pac::MSS_MAC_send_pkt(
-                    mac,
-                    0,
-                    tx_pak_arp.as_ptr(),
-                    tx_pak_arp.len() as u32,
-                    core::ptr::null_mut(),
-                );
-
-                println!(
-                    "send_pkt status: {}; Mac tx status: {:#?}",
-                    tx_status,
-                    (*mac.mac_base).TRANSMIT_STATUS
-                );
-            // println!("MAC queue 0: {:#?}", mac.queue[0]);
-            } else {
-                println!("Link not up");
-            }
-            Timer::after_millis(2000).await;
+                buf.copy_from_slice(&TX_PAK_ARP);
+                // Copy MAC address into the ARP packet
+                buf[6..12].copy_from_slice(&mac_addr);
+            });
         }
+        Timer::after_millis(2000).await;
     }
 }
 
 #[mpfs_hal::init_once]
 fn config() {
-    mpfs_hal::init_logger(log::LevelFilter::Info);
+    mpfs_hal::init_logger(log::LevelFilter::Trace);
 }
 
 #[panic_handler]

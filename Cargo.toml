@@ -18,6 +18,7 @@ mpfs-hal-procmacros = { path = "./mpfs-hal-procmacros", version = "0.2.0" }
 
 embassy-embedded-hal = { version = "0.3" }
 embassy-executor = { version = "0.7" }
+embassy-net-driver = { version = "0.2" }
 embassy-time = { version = "0.4" }
 embassy-sync = { version = "0.6" }
 
