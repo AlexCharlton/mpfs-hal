@@ -29,6 +29,7 @@ mod logger;
 #[cfg(feature = "log")]
 pub use logger::init_logger;
 
+pub mod ethernet;
 pub mod gpio;
 pub mod qspi;
 pub mod uart;
