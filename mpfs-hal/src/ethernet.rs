@@ -4,18 +4,26 @@ use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use paste::paste;
 
 use crate::pac;
+use crate::Peripheral;
 
 #[doc(hidden)]
 #[repr(align(8))]
 pub struct Buffer([u8; pac::MSS_MAC_MAX_RX_BUF_SIZE as usize]);
 
-pub trait MacPeripheral: 'static {
+pub trait MacPeripheral: 'static + core::fmt::Debug + Peripheral {
     #[doc(hidden)]
     fn address(&self) -> *mut pac::mss_mac_instance;
     #[doc(hidden)]
     fn tx_buffer(&self) -> &'static mut Buffer;
     #[doc(hidden)]
     fn rx_buffer(&self, index: usize) -> &'static mut Buffer;
+}
+
+pub trait EthernetPeripheral: 'static + core::fmt::Debug + Peripheral {
+    type Mac: MacPeripheral;
+
+    #[doc(hidden)]
+    fn device(&mut self) -> &mut EthernetDevice<Self::Mac>;
 }
 
 //-------------------------------------------------------------------
@@ -33,6 +41,7 @@ macro_rules! impl_mac {
 
     // E.g. impl_mac!(MAC0, MAC0_TAKEN, MAC0_RX_BUFFER, MAC0_TX_BUFFER, g_mss_mac_0);
     ($MAC:ident, $MAC_TAKEN:ident, $RX_BUFFER:ident, $TX_BUFFER:ident, $instance:ident) => {
+        #[derive(Debug)]
         pub struct $MAC {
             _private: (),
         }
@@ -45,7 +54,7 @@ macro_rules! impl_mac {
         // _really_ support multiple TXs.
         static mut $TX_BUFFER: Buffer = Buffer([0; pac::MSS_MAC_MAX_TX_BUF_SIZE as usize]);
 
-        impl crate::Peripheral for $MAC {
+        impl Peripheral for $MAC {
             fn take() -> Option<Self> {
                 critical_section::with(|_| unsafe {
                     if $MAC_TAKEN {
@@ -79,6 +88,56 @@ macro_rules! impl_mac {
     };
 }
 
+macro_rules! impl_eth {
+    ($n:expr) => {
+        paste! {
+            impl_eth!([<ETH $n>], [<ETH $n _TAKEN>], [<MAC $n>]);
+        }
+    };
+
+    // E.g. impl_mac!(MAC0, MAC0_TAKEN, MAC0_RX_BUFFER, MAC0_TX_BUFFER, g_mss_mac_0);
+    ($ETH:ident, $ETH_TAKEN:ident, $MAC:ident) => {
+        #[derive(Debug)]
+        pub struct $ETH<M: MacPeripheral> {
+            device: EthernetDevice<M>,
+        }
+        static mut $ETH_TAKEN: bool = false;
+
+        impl Peripheral for $ETH<$MAC> {
+            fn take() -> Option<Self> {
+                critical_section::with(|_| unsafe {
+                    if $ETH_TAKEN {
+                        None
+                    } else {
+                        if let Some(mac) = $MAC::take() {
+                            $ETH_TAKEN = true;
+                            Some(Self {
+                                device: EthernetDevice::new(mac),
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                })
+            }
+
+            unsafe fn steal() -> Self {
+                Self {
+                    device: EthernetDevice::new($MAC::steal()),
+                }
+            }
+        }
+
+        impl EthernetPeripheral for $ETH<$MAC> {
+            type Mac = $MAC;
+
+            fn device(&mut self) -> &mut EthernetDevice<$MAC> {
+                &mut self.device
+            }
+        }
+    };
+}
+
 #[cfg(feature = "beaglev-fire")]
 pub use beaglev_fire::*;
 #[cfg(feature = "beaglev-fire")]
@@ -86,6 +145,7 @@ mod beaglev_fire {
     use super::*;
 
     impl_mac!(0); // MAC0
+    impl_eth!(0); // ETH0
 
     pub(crate) fn default_mac_config() -> pac::mss_mac_cfg_t {
         pac::mss_mac_cfg_t {
@@ -107,7 +167,7 @@ mod beaglev_fire {
             phy_controller: core::ptr::null_mut(),
             tx_edc_enable: 0,
             rx_edc_enable: 0,
-            jumbo_frame_enable: 0,
+            jumbo_frame_enable: 1,
             jumbo_frame_default: pac::MSS_MAC_MAX_PACKET_SIZE,
             length_field_check: 1,
             append_CRC: 1,
@@ -142,12 +202,13 @@ pub enum LinkSpeed {
     Speed1000MBPS,
 }
 
+#[derive(Debug)]
 pub struct EthernetDevice<M: MacPeripheral> {
     pub mac: M,
     rx_waker: Option<Waker>,
-    rx_read_index: usize,
-    rx_write_index: usize,
-    rx_lengths: [usize; pac::MSS_MAC_RX_RING_SIZE as usize],
+    // (index, length)
+    pending_rx: RingBuffer<(usize, usize), { pac::MSS_MAC_RX_RING_SIZE as usize }>,
+    rx_tokens_issued: usize,
     tx_buffer_in_use: bool,
     link_speed: LinkSpeed,
     full_duplex: bool,
@@ -169,22 +230,24 @@ impl<M: MacPeripheral> EthernetDevice<M> {
 }
 
 impl<M: MacPeripheral> EthernetDevice<M> {
-    pub fn new(mac: M, mac_address: [u8; 6]) -> Self {
-        let device = Self {
+    pub const fn new(mac: M) -> Self {
+        Self {
             mac,
-            rx_read_index: 0,
-            rx_lengths: [0; pac::MSS_MAC_RX_RING_SIZE as usize],
-            rx_write_index: 0,
+            pending_rx: RingBuffer {
+                buffer: [(0, 0); pac::MSS_MAC_RX_RING_SIZE as usize],
+                head: 0,
+                tail: 0,
+                size: 0,
+            },
+            rx_tokens_issued: 0,
             tx_buffer_in_use: false,
             rx_waker: None,
             link_speed: LinkSpeed::Speed10MBPS,
             full_duplex: false,
-        };
-        device.configure(mac_address);
-        device
+        }
     }
 
-    fn configure(&self, mac_address: [u8; 6]) {
+    pub fn init(&self, mac_address: [u8; 6]) {
         unsafe {
             let mut config = default_mac_config();
             config.mac_addr = mac_address;
@@ -250,11 +313,25 @@ impl<M: MacPeripheral> EthernetDevice<M> {
 }
 
 impl<M: MacPeripheral> embassy_net_driver::Driver for EthernetDevice<M> {
-    type RxToken<'a> = RxToken<'a>;
+    type RxToken<'a> = RxToken<'a, M>;
     type TxToken<'a> = TxToken<'a, M>;
 
     fn receive(&mut self, cx: &mut Context<'_>) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        todo!()
+        critical_section::with(|_| {
+            if self.rx_tokens_issued < self.pending_rx.size {
+                self.rx_tokens_issued += 1;
+                Some((
+                    RxToken {
+                        phantom: core::marker::PhantomData,
+                        ethernet: self as *mut _,
+                    },
+                    self.transmit(cx).unwrap(),
+                ))
+            } else {
+                self.rx_waker = Some(cx.waker().clone());
+                None
+            }
+        })
     }
 
     fn transmit(&mut self, _cx: &mut Context<'_>) -> Option<Self::TxToken<'_>> {
@@ -291,7 +368,10 @@ impl<M: MacPeripheral> embassy_net_driver::Driver for EthernetDevice<M> {
     }
 
     fn capabilities(&self) -> Capabilities {
-        todo!()
+        let mut caps = Capabilities::default();
+        caps.max_transmission_unit = 9216; // Max allowable according to Capabilities struct
+        caps.max_burst_size = Some(pac::MSS_MAC_RX_RING_SIZE as usize);
+        caps
     }
 
     fn hardware_address(&self) -> HardwareAddress {
@@ -300,17 +380,34 @@ impl<M: MacPeripheral> embassy_net_driver::Driver for EthernetDevice<M> {
     }
 }
 
-pub struct RxToken<'a> {
+pub struct RxToken<'a, M: MacPeripheral> {
     phantom: core::marker::PhantomData<&'a ()>,
-    length: usize,
+    ethernet: *mut EthernetDevice<M>,
 }
 
-impl<'a> embassy_net_driver::RxToken for RxToken<'a> {
+impl<'a, M: MacPeripheral> embassy_net_driver::RxToken for RxToken<'a, M> {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        todo!()
+        let ethernet = unsafe { &mut *self.ethernet };
+
+        let (buffer_number, len) = critical_section::with(|_| ethernet.pending_rx.pop().unwrap());
+        let rx_buf = &mut ethernet.mac.rx_buffer(buffer_number).0[0..len];
+        let ret = f(rx_buf);
+        unsafe {
+            pac::MSS_MAC_receive_pkt(
+                ethernet.mac.address(),
+                0,
+                rx_buf.as_mut_ptr(),
+                self.ethernet as *mut _,
+                1,
+            );
+        }
+        critical_section::with(|_| {
+            ethernet.rx_tokens_issued -= 1;
+        });
+        ret
     }
 }
 
@@ -369,31 +466,111 @@ extern "C" fn packet_tx_complete_handler<M: MacPeripheral>(
     _desc: *mut pac::mss_mac_tx_desc,
     user_data: *mut core::ffi::c_void,
 ) {
+    log::trace!("MAC packet TX callback");
     unsafe {
         let ethernet = (user_data as *mut EthernetDevice<M>).as_mut().unwrap();
         ethernet.tx_buffer_in_use = false;
     }
-    log::trace!("Packet tx complete");
 }
 
 extern "C" fn mac_rx_callback<M: MacPeripheral>(
-    mac: *mut core::ffi::c_void,
+    _mac: *mut core::ffi::c_void,
     _queue: u32,
     rx_buf: *mut u8,
     rx_size: u32,
     _rx_desc: *mut pac::mss_mac_rx_desc,
     user_data: *mut core::ffi::c_void,
 ) {
-    log::info!("MAC rx packet of size: {}", rx_size);
-    // unsafe {
-    //     let data: &[u8] = core::slice::from_raw_parts(rx_buf, rx_size as usize);
-    //     if rx_size >= 32 {
-    //         log::info!("  first 32 bytes: {:?}", &data[..32]);
-    //     }
-    // }
+    log::trace!("MAC packet RX callback of size: {}", rx_size);
     unsafe {
-        let ethernet = user_data as *mut EthernetDevice<M>;
-        // This shouldn't be called until we've consumed the packet
-        pac::MSS_MAC_receive_pkt(mac as *mut _, 0, rx_buf, user_data, 1);
+        let ethernet = (user_data as *mut EthernetDevice<M>).as_mut().unwrap();
+        let buffer_number = (rx_buf as usize - (*ethernet).mac.rx_buffer(0).0.as_ptr() as usize)
+            / (pac::MSS_MAC_MAX_RX_BUF_SIZE as usize);
+        let succeeded = critical_section::with(|_| {
+            if let Some(waker) = (*ethernet).rx_waker.take() {
+                waker.wake_by_ref();
+            }
+            (*ethernet)
+                .pending_rx
+                .push((buffer_number, rx_size as usize))
+        });
+        if !succeeded {
+            log::warn!("Failed to push to pending rx");
+            pac::MSS_MAC_receive_pkt(ethernet.mac.address(), 0, rx_buf, user_data as *mut _, 1);
+        }
+    }
+}
+
+//------------------------------------------------------
+// Ring buffer
+struct RingBuffer<T: core::fmt::Debug, const N: usize> {
+    buffer: [T; N],
+    head: usize,
+    tail: usize,
+    size: usize, // current number of elements
+}
+
+impl<T: core::fmt::Debug, const N: usize> core::fmt::Debug for RingBuffer<T, N> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "RingBuffer[")?;
+
+        // let mut count = 0;
+        // let mut idx = self.tail;
+        // while count < self.size {
+        //     if count > 0 {
+        //         write!(f, ", ")?;
+        //     }
+        //     write!(f, "{:?}", self.buffer[idx])?;
+        //     idx = (idx + 1) % N;
+        //     count += 1;
+        // }
+
+        write!(
+            f,
+            "] (size: {}, head: {}, tail: {})",
+            self.size, self.head, self.tail
+        )
+    }
+}
+
+impl<T: Default + Copy + core::fmt::Debug, const N: usize> RingBuffer<T, N> {
+    #[allow(dead_code)]
+    fn new() -> Self {
+        Self {
+            buffer: [T::default(); N],
+            head: 0,
+            tail: 0,
+            size: 0,
+        }
+    }
+
+    // Returns false if the buffer is full
+    fn push(&mut self, item: T) -> bool {
+        if self.is_full() {
+            return false;
+        }
+        self.buffer[self.head] = item;
+        self.head = (self.head + 1) % N;
+        self.size += 1;
+        true
+    }
+
+    fn is_full(&self) -> bool {
+        self.size == N
+    }
+
+    fn is_empty(&self) -> bool {
+        self.size == 0
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            let item = self.buffer[self.tail];
+            self.tail = (self.tail + 1) % N;
+            self.size -= 1;
+            Some(item)
+        }
     }
 }

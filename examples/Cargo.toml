@@ -30,6 +30,7 @@ sdspi = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-embedded-hal = { workspace = true }
+embassy-futures = "0.1"
 embassy-net-driver = { workspace = true }
 embassy-sync = { workspace = true }
 mbr-nostd = "0.1"
