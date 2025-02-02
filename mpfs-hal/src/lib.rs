@@ -17,7 +17,7 @@ pub use mpfs_pac as pac;
 pub use pac::hart_id;
 
 mod peripheral;
-pub use peripheral::Peripheral;
+pub use peripheral::*;
 
 #[cfg(feature = "print")]
 mod print;

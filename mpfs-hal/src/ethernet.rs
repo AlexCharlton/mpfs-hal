@@ -4,7 +4,7 @@ use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use paste::paste;
 
 use crate::pac;
-use crate::Peripheral;
+use crate::{Peripheral, PeripheralRef};
 
 #[doc(hidden)]
 #[repr(align(8))]
@@ -17,13 +17,6 @@ pub trait MacPeripheral: 'static + core::fmt::Debug + Peripheral {
     fn tx_buffer(&self) -> &'static mut Buffer;
     #[doc(hidden)]
     fn rx_buffer(&self, index: usize) -> &'static mut Buffer;
-}
-
-pub trait EthernetPeripheral: 'static + core::fmt::Debug + Peripheral {
-    type Mac: MacPeripheral;
-
-    #[doc(hidden)]
-    fn device(&mut self) -> &mut EthernetDevice<Self::Mac>;
 }
 
 //-------------------------------------------------------------------
@@ -97,23 +90,20 @@ macro_rules! impl_eth {
 
     // E.g. impl_mac!(MAC0, MAC0_TAKEN, MAC0_RX_BUFFER, MAC0_TX_BUFFER, g_mss_mac_0);
     ($ETH:ident, $ETH_TAKEN:ident, $MAC:ident) => {
-        #[derive(Debug)]
-        pub struct $ETH<M: MacPeripheral> {
-            device: EthernetDevice<M>,
-        }
+        static mut $ETH: Option<EthernetDevice<$MAC>> = None;
         static mut $ETH_TAKEN: bool = false;
 
-        impl Peripheral for $ETH<$MAC> {
-            fn take() -> Option<Self> {
+        impl PeripheralRef for EthernetDevice<$MAC> {
+            fn take() -> Option<&'static mut Self> {
                 critical_section::with(|_| unsafe {
                     if $ETH_TAKEN {
                         None
                     } else {
                         if let Some(mac) = $MAC::take() {
                             $ETH_TAKEN = true;
-                            Some(Self {
-                                device: EthernetDevice::new(mac),
-                            })
+                            $ETH = Some(EthernetDevice::new(mac));
+                            #[allow(static_mut_refs)]
+                            Some($ETH.as_mut().unwrap())
                         } else {
                             None
                         }
@@ -121,18 +111,10 @@ macro_rules! impl_eth {
                 })
             }
 
-            unsafe fn steal() -> Self {
-                Self {
-                    device: EthernetDevice::new($MAC::steal()),
-                }
-            }
-        }
-
-        impl EthernetPeripheral for $ETH<$MAC> {
-            type Mac = $MAC;
-
-            fn device(&mut self) -> &mut EthernetDevice<$MAC> {
-                &mut self.device
+            unsafe fn steal() -> &'static mut Self {
+                $ETH = Some(EthernetDevice::new($MAC::steal()));
+                #[allow(static_mut_refs)]
+                $ETH.as_mut().unwrap()
             }
         }
     };
@@ -145,7 +127,7 @@ mod beaglev_fire {
     use super::*;
 
     impl_mac!(0); // MAC0
-    impl_eth!(0); // ETH0
+    impl_eth!(0); // EthernetDevice<MAC0>
 
     pub(crate) fn default_mac_config() -> pac::mss_mac_cfg_t {
         pac::mss_mac_cfg_t {
@@ -204,7 +186,7 @@ pub enum LinkSpeed {
 
 #[derive(Debug)]
 pub struct EthernetDevice<M: MacPeripheral> {
-    pub mac: M,
+    mac: M,
     rx_waker: Option<Waker>,
     // (index, length)
     pending_rx: RingBuffer<(usize, usize), { pac::MSS_MAC_RX_RING_SIZE as usize }>,
@@ -230,7 +212,7 @@ impl<M: MacPeripheral> EthernetDevice<M> {
 }
 
 impl<M: MacPeripheral> EthernetDevice<M> {
-    pub const fn new(mac: M) -> Self {
+    const fn new(mac: M) -> Self {
         Self {
             mac,
             pending_rx: RingBuffer {

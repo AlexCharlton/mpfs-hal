@@ -10,19 +10,19 @@ extern crate mpfs_hal;
 
 use embassy_futures::join::join3;
 use embassy_net_driver::{Driver, HardwareAddress, RxToken, TxToken};
-use mpfs_hal::ethernet::{EthernetPeripheral, ETH0, MAC0};
-use mpfs_hal::Peripheral;
+use mpfs_hal::ethernet::{EthernetDevice, MAC0};
+use mpfs_hal::PeripheralRef;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
-async fn hart1_main(_spawner: embassy_executor::Spawner) {
+async fn hart1_main(spawner: embassy_executor::Spawner) {
     println!("Starting");
-    let mut device = ETH0::take().unwrap();
-    device.device().init([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
-    run(&mut device).await;
+    let device = EthernetDevice::<MAC0>::take().unwrap();
+    device.init([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+    spawner.spawn(run(device)).unwrap();
 }
 
 const TX_PAK_ARP: [u8; 128] = [
@@ -36,9 +36,10 @@ const TX_PAK_ARP: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
-async fn run(device: &mut ETH0<MAC0>) {
+#[embassy_executor::task]
+async fn run(device: &'static mut EthernetDevice<MAC0>) {
     let waker = create_noop_waker();
-    let mac_addr = match device.device().hardware_address() {
+    let mac_addr = match device.hardware_address() {
         HardwareAddress::Ethernet(mac) => mac,
         _ => panic!("Expected MAC address"),
     };
@@ -51,7 +52,7 @@ async fn run(device: &mut ETH0<MAC0>) {
             loop {
                 if LINK_UP.load(Ordering::Relaxed) {
                     let mut device = device.lock().await;
-                    if let Some((rx_token, _)) = device.device().receive(&mut cx) {
+                    if let Some((rx_token, _)) = device.receive(&mut cx) {
                         rx_token.consume(|buffer| {
                             println!("Received packet of {} bytes", buffer.len());
                         });
@@ -65,7 +66,7 @@ async fn run(device: &mut ETH0<MAC0>) {
             loop {
                 if LINK_UP.load(Ordering::Relaxed) {
                     let mut device = device.lock().await;
-                    if let Some(tx_token) = device.device().transmit(&mut cx) {
+                    if let Some(tx_token) = device.transmit(&mut cx) {
                         tx_token.consume(TX_PAK_ARP.len(), |buf| {
                             println!("Sending ARP");
                             buf.copy_from_slice(&TX_PAK_ARP);
@@ -81,7 +82,7 @@ async fn run(device: &mut ETH0<MAC0>) {
             loop {
                 {
                     let mut device = device.lock().await;
-                    let link_state = device.device().link_state(&mut cx);
+                    let link_state = device.link_state(&mut cx);
                     let is_up = link_state == embassy_net_driver::LinkState::Up;
                     let previous_link_state = LINK_UP.load(Ordering::Relaxed);
                     if is_up != previous_link_state {
@@ -89,7 +90,7 @@ async fn run(device: &mut ETH0<MAC0>) {
                         println!(
                             "Link up? {:?}; Link speed: {:?}",
                             is_up,
-                            device.device().link_speed()
+                            device.link_speed()
                         );
                     }
                 }
@@ -112,7 +113,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 //--------------------------------------------------------------
-// Noop waker
+// Noop waker; Use Waker::noop() in 1.85
 use core::task::{RawWaker, RawWakerVTable, Waker};
 const NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
     |_| RawWaker::new(core::ptr::null(), &NOOP_WAKER_VTABLE),
