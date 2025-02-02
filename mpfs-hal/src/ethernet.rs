@@ -1,6 +1,6 @@
-use core::task::Context;
-use core::task::Waker;
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
+use core::future::Future;
+use core::task::{Context, Poll, Waker};
+use embassy_net_driver::{Capabilities, Driver, HardwareAddress};
 use paste::paste;
 
 use crate::pac;
@@ -184,7 +184,57 @@ pub enum LinkSpeed {
     Speed1000MBPS,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkState {
+    Down,
+    Up,
+}
+
+impl LinkState {
+    pub fn is_up(&self) -> bool {
+        *self == LinkState::Up
+    }
+}
+
 #[derive(Debug)]
+pub struct EthernetTx<M: MacPeripheral> {
+    ethernet: *mut EthernetDevice<M>,
+}
+
+impl<M: MacPeripheral> EthernetTx<M> {
+    pub fn send<R, F>(&mut self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let ethernet = unsafe { &mut *self.ethernet };
+        ethernet._send(len, f)
+    }
+}
+
+pub struct EthernetRx<M: MacPeripheral> {
+    ethernet: *mut EthernetDevice<M>,
+}
+
+impl<M: MacPeripheral> EthernetRx<M> {
+    pub async fn receive<R, F>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let ethernet = unsafe { &mut *self.ethernet };
+        ethernet._receive(f).await
+    }
+}
+
+#[derive(Debug)]
+pub enum RxError {
+    Split,
+}
+
+#[derive(Debug)]
+pub enum TxError {
+    Split,
+}
+
 pub struct EthernetDevice<M: MacPeripheral> {
     mac: M,
     rx_waker: Option<Waker>,
@@ -194,21 +244,7 @@ pub struct EthernetDevice<M: MacPeripheral> {
     tx_buffer_in_use: bool,
     link_speed: LinkSpeed,
     full_duplex: bool,
-}
-
-impl<M: MacPeripheral> EthernetDevice<M> {
-    pub fn link_speed(&self) -> LinkSpeed {
-        self.link_speed
-    }
-
-    pub fn full_duplex(&self) -> bool {
-        self.full_duplex
-    }
-
-    #[doc(hidden)]
-    pub fn debug_mac_queue(&self) {
-        // println!("MAC queue 0: {:#?}", mac.queue[0]);
-    }
+    split: bool,
 }
 
 impl<M: MacPeripheral> EthernetDevice<M> {
@@ -226,6 +262,7 @@ impl<M: MacPeripheral> EthernetDevice<M> {
             rx_waker: None,
             link_speed: LinkSpeed::Speed10MBPS,
             full_duplex: false,
+            split: false,
         }
     }
 
@@ -277,6 +314,85 @@ impl<M: MacPeripheral> EthernetDevice<M> {
         }
     }
 
+    pub fn split(&mut self) -> (EthernetTx<M>, EthernetRx<M>) {
+        self.split = true;
+        (
+            EthernetTx {
+                ethernet: self as *mut _,
+            },
+            EthernetRx {
+                ethernet: self as *mut _,
+            },
+        )
+    }
+
+    pub fn link_speed(&self) -> LinkSpeed {
+        self.link_speed
+    }
+
+    pub fn full_duplex(&self) -> bool {
+        self.full_duplex
+    }
+
+    #[doc(hidden)]
+    pub fn debug_mac_queue(&self) {
+        log::debug!("MAC queue 0: {:#?}", unsafe {
+            (*self.mac.address()).queue[0]
+        });
+    }
+
+    pub fn send<R, F>(&mut self, len: usize, f: F) -> Result<R, TxError>
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        if self.split {
+            Err(TxError::Split)
+        } else {
+            Ok(self._send(len, f))
+        }
+    }
+
+    fn _send<R, F>(&mut self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut lock_count = 0;
+        loop {
+            if !self.tx_buffer_in_use {
+                let got_lock = critical_section::with(|_| {
+                    // Check again, since we might have lost the lock
+                    if !self.tx_buffer_in_use {
+                        self.tx_buffer_in_use = true;
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if got_lock {
+                    break;
+                }
+            }
+            lock_count += 1;
+
+            // Clear the lock if we get stuck here, since it's possible a bad packet will never get its callback called.
+            if lock_count > 1000 {
+                self.tx_buffer_in_use = false;
+                log::warn!("Failed to get lock on ethernet TX buffer, resetting");
+            }
+        }
+        if len > self.mac.tx_buffer().0.len() {
+            panic!(
+                "Max ethernet TX packet size {} exceeded",
+                self.mac.tx_buffer().0.len()
+            );
+        }
+        // We own the tx buffer now, so we can send the packet
+        let ret = f(&mut self.mac.tx_buffer().0[0..len]);
+        self.send_pkt(len);
+
+        ret
+    }
+
     // The packet is expected to be in the tx buffer already
     fn send_pkt(&mut self, len: usize) {
         unsafe {
@@ -292,41 +408,29 @@ impl<M: MacPeripheral> EthernetDevice<M> {
             }
         }
     }
-}
-
-impl<M: MacPeripheral> embassy_net_driver::Driver for EthernetDevice<M> {
-    type RxToken<'a> = RxToken<'a, M>;
-    type TxToken<'a> = TxToken<'a, M>;
-
-    fn receive(&mut self, cx: &mut Context<'_>) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        critical_section::with(|_| {
-            if self.rx_tokens_issued < self.pending_rx.size {
-                self.rx_tokens_issued += 1;
-                Some((
-                    RxToken {
-                        phantom: core::marker::PhantomData,
-                        ethernet: self as *mut _,
-                    },
-                    self.transmit(cx).unwrap(),
-                ))
-            } else {
-                self.rx_waker = Some(cx.waker().clone());
-                None
-            }
-        })
+    pub async fn receive<R, F>(&mut self, f: F) -> Result<R, RxError>
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        if self.split {
+            Err(RxError::Split)
+        } else {
+            Ok(self._receive(f).await)
+        }
     }
 
-    fn transmit(&mut self, _cx: &mut Context<'_>) -> Option<Self::TxToken<'_>> {
-        // We can actually create as many TxTokens as we want: What matters is that we don't consume
-        // more than one at a time. Consume will take the lock on ethernet.
-        Some(TxToken {
-            phantom: core::marker::PhantomData,
+    async fn _receive<R, F>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let future = RxFuture {
             ethernet: self as *mut _,
-        })
+        };
+        let token = future.await;
+        embassy_net_driver::RxToken::consume(token, f)
     }
 
-    fn link_state(&mut self, cx: &mut Context<'_>) -> LinkState {
-        cx.waker().wake_by_ref();
+    pub fn link_state(&mut self) -> LinkState {
         let mut test_speed = pac::__mss_mac_speed_t_MSS_MAC_1000MBPS;
         let mut test_fullduplex = 0;
         let test_linkup = unsafe {
@@ -349,6 +453,59 @@ impl<M: MacPeripheral> embassy_net_driver::Driver for EthernetDevice<M> {
         LinkState::Up
     }
 
+    pub fn mac_address(&self) -> [u8; 6] {
+        let mac = unsafe { *self.mac.address() };
+        mac.mac_addr
+    }
+}
+
+impl<M: MacPeripheral> Driver for EthernetDevice<M> {
+    type RxToken<'a> = RxToken<'a, M>;
+    type TxToken<'a> = TxToken<'a, M>;
+
+    fn receive(&mut self, cx: &mut Context<'_>) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        critical_section::with(|_| {
+            if !self.split && self.rx_tokens_issued < self.pending_rx.size {
+                self.rx_tokens_issued += 1;
+                Some((
+                    RxToken {
+                        phantom: core::marker::PhantomData,
+                        ethernet: self as *mut _,
+                    },
+                    self.transmit(cx).unwrap(),
+                ))
+            } else {
+                if self.split {
+                    log::warn!("RX split, not receiving");
+                }
+                self.rx_waker = Some(cx.waker().clone());
+                None
+            }
+        })
+    }
+
+    fn transmit(&mut self, _cx: &mut Context<'_>) -> Option<Self::TxToken<'_>> {
+        // We can actually create as many TxTokens as we want: What matters is that we don't consume
+        // more than one at a time. Consume will take the lock on ethernet.
+        if self.split {
+            log::warn!("TX split, not transmitting");
+            None
+        } else {
+            Some(TxToken {
+                phantom: core::marker::PhantomData,
+                ethernet: self as *mut _,
+            })
+        }
+    }
+
+    fn link_state(&mut self, cx: &mut Context<'_>) -> embassy_net_driver::LinkState {
+        cx.waker().wake_by_ref();
+        match self.link_state() {
+            LinkState::Up => embassy_net_driver::LinkState::Up,
+            LinkState::Down => embassy_net_driver::LinkState::Down,
+        }
+    }
+
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = 9216; // Max allowable according to Capabilities struct
@@ -357,10 +514,12 @@ impl<M: MacPeripheral> embassy_net_driver::Driver for EthernetDevice<M> {
     }
 
     fn hardware_address(&self) -> HardwareAddress {
-        let mac = unsafe { *self.mac.address() };
-        HardwareAddress::Ethernet(mac.mac_addr)
+        HardwareAddress::Ethernet(self.mac_address())
     }
 }
+
+//------------------------------------------------------
+// Tokens
 
 pub struct RxToken<'a, M: MacPeripheral> {
     phantom: core::marker::PhantomData<&'a ()>,
@@ -389,6 +548,7 @@ impl<'a, M: MacPeripheral> embassy_net_driver::RxToken for RxToken<'a, M> {
         critical_section::with(|_| {
             ethernet.rx_tokens_issued -= 1;
         });
+        log::trace!("Consumed RX token");
         ret
     }
 }
@@ -404,43 +564,38 @@ impl<'a, M: MacPeripheral> embassy_net_driver::TxToken for TxToken<'a, M> {
         F: FnOnce(&mut [u8]) -> R,
     {
         let ethernet = unsafe { &mut *self.ethernet };
-        let mut lock_count = 0;
-        loop {
-            if !ethernet.tx_buffer_in_use {
-                let got_lock = critical_section::with(|_| {
-                    // Check again, since we might have lost the lock
-                    if !ethernet.tx_buffer_in_use {
-                        ethernet.tx_buffer_in_use = true;
-                        true
-                    } else {
-                        false
-                    }
-                });
-                if got_lock {
-                    break;
-                }
-            }
-            lock_count += 1;
-
-            // Clear the lock if we get stuck here, since it's possible a bad packet will never get its callback called.
-            if lock_count > 1000 {
-                ethernet.tx_buffer_in_use = false;
-                log::warn!("Failed to get lock on ethernet TX buffer, resetting");
-            }
-        }
-        if len > ethernet.mac.tx_buffer().0.len() {
-            panic!(
-                "Max ethernet TX packet size {} exceeded",
-                ethernet.mac.tx_buffer().0.len()
-            );
-        }
-        // We own the tx buffer now, so we can send the packet
-        let ret = f(&mut ethernet.mac.tx_buffer().0[0..len]);
-        ethernet.send_pkt(len);
-
-        ret
+        ethernet.send(len, f).unwrap()
     }
 }
+
+//------------------------------------------------------
+
+pub struct RxFuture<M: MacPeripheral> {
+    ethernet: *mut EthernetDevice<M>,
+}
+
+impl<M: MacPeripheral> Future for RxFuture<M> {
+    type Output = RxToken<'static, M>;
+
+    fn poll(mut self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        critical_section::with(|_| {
+            let ethernet = unsafe { &mut *self.ethernet };
+            if ethernet.rx_tokens_issued < ethernet.pending_rx.size {
+                ethernet.rx_tokens_issued += 1;
+                Poll::Ready(RxToken {
+                    phantom: core::marker::PhantomData,
+                    ethernet: self.ethernet as *mut _,
+                })
+            } else {
+                ethernet.rx_waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        })
+    }
+}
+
+// ----------------------------------------------------
+// Callbacks
 
 extern "C" fn packet_tx_complete_handler<M: MacPeripheral>(
     _mac: *mut core::ffi::c_void,
