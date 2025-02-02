@@ -22,7 +22,7 @@ pub trait MacPeripheral: 'static + core::fmt::Debug + Peripheral {
 //-------------------------------------------------------------------
 // Create the MAC peripherals
 // Maybe TODO: We're reserving a moderate amount of memory for the RX and TX buffers
-// (10kB x 17 buffers = 170kB x num MACs)
+// (10kB x 65 buffers = 650kB x num MACs)
 // This should probably be opt-in.
 
 macro_rules! impl_mac {
@@ -248,7 +248,11 @@ pub struct EthernetDevice<M: MacPeripheral> {
 }
 
 impl<M: MacPeripheral> EthernetDevice<M> {
-    const fn new(mac: M) -> Self {
+    fn new(mac: M) -> Self {
+        log::debug!(
+            "Creating EthernetDevice with rx ring size {}",
+            pac::MSS_MAC_RX_RING_SIZE
+        );
         Self {
             mac,
             pending_rx: RingBuffer {

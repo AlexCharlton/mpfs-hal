@@ -13,7 +13,23 @@ embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
+embassy-net-driver = { workspace = true }
 log = { workspace = true }
+static_cell = { workspace = true }
+
+# TCP example
+embassy-net = { version = "0.6", features = [
+    "tcp",
+    "udp",
+    "raw",
+    "dhcpv4",
+    "medium-ethernet",
+    "dns",
+    "proto-ipv4",
+    "proto-ipv6",
+    "multicast",
+] }
+rand = { version = "0.9", default-features = false, features = ["small_rng"] }
 
 # SD example
 aligned = "0.4"
@@ -31,7 +47,5 @@ embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-embedded-hal = { workspace = true }
 embassy-futures = "0.1"
-embassy-net-driver = { workspace = true }
 embassy-sync = { workspace = true }
 mbr-nostd = "0.1"
-static_cell = { workspace = true }

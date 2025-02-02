@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::join::join3;
 use embassy_time::Timer;

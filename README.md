@@ -14,7 +14,8 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 - UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/)) (Read TODO)
 - UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html)) `SpiBus`
-- Ethernet and USB support planned next
+- Ethernet (implementing the [embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver` trait)
+- USB support planned next
 
 
 `mpfs-hal-embassy` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal-embassy)](https://crates.io/crates/mpfs-hal-embassy) [![Docs.rs](https://docs.rs/mpfs-hal-embassy/badge.svg)](https://docs.rs/mpfs-hal-embassy)<br />
