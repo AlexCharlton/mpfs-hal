@@ -16,4 +16,7 @@
 #include "platform/drivers/mss/mss_ethernet_mac/mss_ethernet_mac.h"
 #include "platform/drivers/mss/mss_ethernet_mac/phy.h"
 
+#include "platform/drivers/mss/mss_usb/mss_usb_device.h"
+#include "platform/drivers/mss/mss_usb/mss_usb_host.h"
+
 #include "platform/drivers/fpga_ip/CoreGPIO/core_gpio.h"

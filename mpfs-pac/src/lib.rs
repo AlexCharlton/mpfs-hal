@@ -25,6 +25,9 @@ pub use timer::*;
 mod uart;
 pub use uart::*;
 
+mod usb;
+pub use usb::*;
+
 mod qspi;
 pub use qspi::*;
 

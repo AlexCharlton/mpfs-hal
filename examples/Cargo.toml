@@ -13,7 +13,6 @@ embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
-embassy-net-driver = { workspace = true }
 log = { workspace = true }
 static_cell = { workspace = true }
 

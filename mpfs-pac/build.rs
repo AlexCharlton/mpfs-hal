@@ -78,9 +78,10 @@ fn main() {
         .flag("-fsigned-char")
         .flag("-g")
         .define("NDEBUG", None)
-        .define("TARGET_G5_SOC", None) // Is this really right?
+        .define("TARGET_G5_SOC", None) // Used to enable MAC
         .define("MSS_MAC_SIMPLE_TX_QUEUE", None)
         .define(get_target_board_define(), None)
+        .define("MSS_USB_OTG_DUAL_ROLE_MODE", None) // Enable USB Host and Device
         .includes(&[
             "mpfs-platform/application",
             "mpfs-platform/platform",
@@ -144,6 +145,7 @@ fn generate_bindings() {
             "-Impfs-platform/platform",
             "-DTARGET_G5_SOC",
             &format!("-D{}", get_target_board_define()),
+            "-DMSS_USB_OTG_DUAL_ROLE_MODE",
             &board_include,
             &board_config_include,
         ])
