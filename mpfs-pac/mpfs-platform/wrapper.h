@@ -18,5 +18,9 @@
 
 #include "platform/drivers/mss/mss_usb/mss_usb_device.h"
 #include "platform/drivers/mss/mss_usb/mss_usb_host.h"
+#include "platform/drivers/mss/mss_usb/mss_usb_std_def.h"
 
 #include "platform/drivers/fpga_ip/CoreGPIO/core_gpio.h"
+
+// Temporary:
+#include "platform/drivers/mss/mss_usb/mss_usb_device_hid.h"
