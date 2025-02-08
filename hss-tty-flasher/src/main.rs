@@ -30,7 +30,6 @@ enum Mode {
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum FlashState {
     HssBooted,
-    HssBootedPostFlash,
     HssInterruptPrompt,
     UsbHostConnecting,
     UsbHostConnected,
@@ -50,7 +49,6 @@ impl Mode {
                 "\x1b[7mFLASH MODE | State: {} | Ctrl-T: Exit | Ctrl-Y: Toggle Mode\x1b[0m",
                 match flash_state {
                     FlashState::HssBooted => "HSS Booted",
-                    FlashState::HssBootedPostFlash => "HSS Booted Post Flash",
                     FlashState::HssInterruptPrompt => "Interrupting boot",
                     FlashState::UsbHostConnecting => "USB Host Connecting",
                     FlashState::UsbHostConnected => "USB Host Connected",
@@ -201,15 +199,9 @@ fn handle_line(
     line: &str,
 ) -> Result<FlashState, io::Error> {
     if line.contains("PolarFire(R) SoC Hart Software Services (HSS)") {
-        if current_state == FlashState::FlashComplete {
-            return Ok(FlashState::HssBootedPostFlash);
-        } else {
-            return Ok(FlashState::HssBooted);
-        }
+        return Ok(FlashState::HssBooted);
     }
-    if line.contains("Press a key to enter CLI, ESC to skip")
-        && current_state != FlashState::HssBootedPostFlash
-    {
+    if line.contains("Press a key to enter CLI, ESC to skip") {
         port.write_all("c\r\n".as_bytes())?;
         return Ok(FlashState::HssInterruptPrompt);
     }
@@ -219,7 +211,7 @@ fn handle_line(
         return Ok(FlashState::UsbHostConnecting);
     }
     if line.contains("USB Host disconnected...") {
-        port.write_all("reset\r\n".as_bytes())?;
+        port.write_all("boot\r\n".as_bytes())?;
         return Ok(FlashState::FlashComplete);
     }
     Ok(current_state)
