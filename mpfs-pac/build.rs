@@ -119,7 +119,11 @@ fn main() {
 
     // Linker
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    let linker_script = "linker.ld";
+    let linker_script = if cfg!(feature = "upper-memory-layout") {
+        "linker-upper.ld"
+    } else {
+        "linker-lower.ld"
+    };
     let linker_script_dst = out_dir.join("linker.ld");
     std::fs::copy(linker_script, &linker_script_dst).unwrap();
 
