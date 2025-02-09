@@ -9,6 +9,7 @@ categories = ["embedded", "command-line-utilities"]
 keywords = ["mpfs", "polarfire"]
 
 [dependencies]
+elf = "0.7"
 serialport = "4.2"
 crossterm = "0.27"
 sysinfo = "0.32"
