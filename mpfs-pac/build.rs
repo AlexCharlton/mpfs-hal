@@ -20,7 +20,8 @@ fn get_target_board_define() -> &'static str {
 fn main() {
     println!("cargo:rerun-if-changed=mpfs-platform");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=linker.ld");
+    println!("cargo:rerun-if-changed=linker-upper.ld");
+    println!("cargo:rerun-if-changed=linker-lower.ld");
 
     // Skip compilation steps if we're running on docs.rs
     if std::env::var("DOCS_RS").is_ok() {
