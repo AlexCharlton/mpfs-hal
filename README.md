@@ -5,6 +5,9 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 > [!NOTE]
 > This repository is an early work in progress. See the crate descriptions below for details about what features are supported. Currently only the BeagleV-Fire board is targeted, but additional board support should be fairly straightforward.
 
+> [!TIP]
+> Using a more recent version of the HSS bootloader is highly recommended. DDR training on earlier versions hangs frequently. See the [**Gateware programming**](#gateware-programming) section for details about upgrading.
+
 **Primary crates**:
 
 `mpfs-hal` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal)](https://crates.io/crates/mpfs-hal) [![Docs.rs](https://docs.rs/mpfs-hal/badge.svg)](https://docs.rs/mpfs-hal)<br />
@@ -80,3 +83,10 @@ Get cargo to check using the correct target:
 ```sh
 $ cargo check --target riscv64gc-unknown-none-elf
 ```
+
+## Gateware programming
+See [beaglev-fire-zephyr-and-baremetal-with-gateware](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware) for an example project that contains the BeagleV-Fire gateware along with an updated bootloader (HSS). [icicle-kit-minimal-bring-up-design-bitstream-builder](https://github.com/polarfire-soc/icicle-kit-minimal-bring-up-design-bitstream-builder) similarly illustrates this for the Icicle Kit (though the HSS it uses is older).
+
+You can find a [pre-compiled bitstream](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware/releases/tag/default-bitstream-1.0) in the former repo which can either be programmed by using a [FlashPro Express 5 or 6](https://www.microchip.com/en-us/products/fpgas-and-plds/fpga-and-soc-design-tools/programming-and-debug/flashpro-express) or by taking advantage of the MPFS's auto-update feature via the SPI flash memory, like the BeagleV-Fire [`change-gateware.sh` script](https://docs.beagle.cc/boards/beaglev/fire/demos-and-tutorials/gateware/customize-cape-gateware-verilog.html#program-beaglev-fire-with-your-custom-bitstream) does.
+
+If using a FlashPro Express, make sure that the SPI flash does not point to an auto-updateable bitstream. To this end, you can use [this image](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware/releases/tag/spi-erase-1.0) to erase the the first block of the SPI flash memory. Just program it to the board using hss-tty-flasher and let it boot. This only needs to be done once.
