@@ -19,7 +19,7 @@ features = []
 
 [features]
 default = ["beaglev-fire"]
-beaglev-fire = []
+beaglev-fire = ["upper-memory-layout"]
 # Enable the 38-bit address range. Only the 38-bit address range supports more than 1GB of RAM.
 upper-memory-layout = []
 

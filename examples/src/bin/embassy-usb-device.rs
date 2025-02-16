@@ -209,6 +209,7 @@ fn init_usb() {
             pac::MPFS_HAL_FIRST_HART as u8,
             pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
         );
+        pac::init_usb_dma_upper_address();
         pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
         pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
 

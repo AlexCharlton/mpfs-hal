@@ -51,13 +51,8 @@ pub fn last_address() -> usize {
         0x8000_0000
     };
     let size_ram = if cfg!(feature = "beaglev-fire") {
-        if cfg!(feature = "upper-memory-layout") {
-            // 2GB
-            0x8000_0000
-        } else {
-            // 1GB
-            0x4000_0000
-        }
+        // 2GB
+        0x8000_0000
     } else {
         panic!("Unsupported board: No RAM size defined");
     };
