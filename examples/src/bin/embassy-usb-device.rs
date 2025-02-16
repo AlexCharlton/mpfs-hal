@@ -1,12 +1,11 @@
 #![no_std]
 #![no_main]
 
+use aligned::{Aligned, A4};
 use mpfs_hal::pac;
 
 #[macro_use]
 extern crate mpfs_hal;
-
-const USB_MAX_STRING_DESCRIPTOR_SIZE: usize = 64;
 
 // String Descriptor Indexes
 const USB_STRING_DESCRIPTOR_IDX_LANGID: u8 = 0x00;
@@ -17,22 +16,27 @@ const USB_STRING_DESCRIPTOR_IDX_CONFIG: u8 = 0x04;
 const USB_STRING_DESCRIPTOR_IDX_INTERFACE: u8 = 0x05;
 
 // String constants
-const USB_STRING_MANUFACTURER: &str = "Microchip Inc";
-const USB_STRING_PRODUCT: &str = "PolarFire SoC Mouse";
+const USB_STRING_MANUFACTURER: &str = "ACME, Inc.";
+const USB_STRING_PRODUCT: &str = "mpfs-hal Mouse";
 const USB_STRING_SERIAL: &str = "HID1234";
 const USB_STRING_CONFIG: &str = "CFG0";
 const USB_STRING_INTERFACE: &str = "Interface0";
 
+const USB_MAX_STRING_DESCRIPTOR_SIZE: usize = 64;
+
+static mut G_STRING_DESCRIPTOR: Aligned<A4, [u8; USB_MAX_STRING_DESCRIPTOR_SIZE]> =
+    Aligned([0; USB_MAX_STRING_DESCRIPTOR_SIZE]);
+
 // This needs to be 4-byte aligned for DMA
-static mut REPORT: pac::mss_usbd_hid_report_t = pac::mss_usbd_hid_report_t {
+static mut REPORT: Aligned<A4, pac::mss_usbd_hid_report_t> = Aligned(pac::mss_usbd_hid_report_t {
     buttons: 0,
     x_move: 0,
     y_move: 0,
     wheel: 0,
-};
+});
 
 // Device descriptor
-static DEVICE_DESCRIPTOR: [u8; pac::USB_STD_DEVICE_DESCR_LEN as usize] = [
+static DEVICE_DESCRIPTOR: Aligned<A4, [u8; pac::USB_STD_DEVICE_DESCR_LEN as usize]> = Aligned([
     pac::USB_STD_DEVICE_DESCR_LEN as u8,    // bLength
     pac::USB_DEVICE_DESCRIPTOR_TYPE as u8,  // bDescriptorType
     0x00,                                   // bcdUSB LSB
@@ -51,44 +55,43 @@ static DEVICE_DESCRIPTOR: [u8; pac::USB_STD_DEVICE_DESCR_LEN as usize] = [
     USB_STRING_DESCRIPTOR_IDX_PRODUCT,      // iProduct
     USB_STRING_DESCRIPTOR_IDX_SERIAL,       // iSerialNumber
     0x01,                                   // bNumConfigurations
-];
+]);
 
 // Device qualifiers
-static HS_DEV_QUALIFIER_DESCRIPTOR: [u8; pac::USB_STD_DEV_QUAL_DESCR_LENGTH as usize] = [
-    pac::USB_STD_DEV_QUAL_DESCR_LENGTH as u8,        // bLength
-    pac::USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE as u8, // bDescriptorType
-    0x00,                                            // bcdUSB LSB
-    0x02,                                            // bcdUSB MSB
-    0x00,                                            // bDeviceClass
-    0x00,                                            // bDeviceSubClass
-    0x00,                                            // bDeviceProtocol
-    0x40,                                            // bMaxPacketSize0
-    0x01,                                            // bNumConfigurations
-    0x00,                                            // Reserved
-];
+static HS_DEV_QUALIFIER_DESCRIPTOR: Aligned<A4, [u8; pac::USB_STD_DEV_QUAL_DESCR_LENGTH as usize]> =
+    Aligned([
+        pac::USB_STD_DEV_QUAL_DESCR_LENGTH as u8,        // bLength
+        pac::USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE as u8, // bDescriptorType
+        0x00,                                            // bcdUSB LSB
+        0x02,                                            // bcdUSB MSB
+        0x00,                                            // bDeviceClass
+        0x00,                                            // bDeviceSubClass
+        0x00,                                            // bDeviceProtocol
+        0x40,                                            // bMaxPacketSize0
+        0x01,                                            // bNumConfigurations
+        0x00,                                            // Reserved
+    ]);
 
-static FS_DEV_QUALIFIER_DESCRIPTOR: [u8; pac::USB_STD_DEV_QUAL_DESCR_LENGTH as usize] = [
-    pac::USB_STD_DEV_QUAL_DESCR_LENGTH as u8,        // bLength
-    pac::USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE as u8, // bDescriptorType
-    0x00,                                            // bcdUSB LSB
-    0x02,                                            // bcdUSB MSB
-    0x00,                                            // bDeviceClass
-    0x00,                                            // bDeviceSubClass
-    0x00,                                            // bDeviceProtocol
-    0x40,                                            // bMaxPacketSize0
-    0x01,                                            // bNumConfigurations
-    0x00,                                            // Reserved
-];
+static FS_DEV_QUALIFIER_DESCRIPTOR: Aligned<A4, [u8; pac::USB_STD_DEV_QUAL_DESCR_LENGTH as usize]> =
+    Aligned([
+        pac::USB_STD_DEV_QUAL_DESCR_LENGTH as u8,        // bLength
+        pac::USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE as u8, // bDescriptorType
+        0x00,                                            // bcdUSB LSB
+        0x02,                                            // bcdUSB MSB
+        0x00,                                            // bDeviceClass
+        0x00,                                            // bDeviceSubClass
+        0x00,                                            // bDeviceProtocol
+        0x40,                                            // bMaxPacketSize0
+        0x01,                                            // bNumConfigurations
+        0x00,                                            // Reserved
+    ]);
 
-static LANG_STRING_DESCRIPTOR: [u8; 4] = [
+static LANG_STRING_DESCRIPTOR: Aligned<A4, [u8; 4]> = Aligned([
     0x04,                                  // bLength
     pac::USB_STRING_DESCRIPTOR_TYPE as u8, // bDescriptorType
     0x09,                                  // LangID-LSB
     0x04,                                  // LangID-MSB
-];
-
-static mut G_STRING_DESCRIPTOR: [u8; USB_MAX_STRING_DESCRIPTOR_SIZE] =
-    [0; USB_MAX_STRING_DESCRIPTOR_SIZE];
+]);
 
 unsafe extern "C" fn hid_device_descriptor(length: *mut u32) -> *mut u8 {
     *length = DEVICE_DESCRIPTOR.len() as u32;
@@ -107,7 +110,7 @@ unsafe extern "C" fn hid_device_qual_descriptor(
     descriptor.as_ptr() as *mut u8
 }
 
-fn hid_get_string(string: &str, dest: &mut [u8]) -> u8 {
+fn hid_get_string(string: &str, dest: &mut Aligned<A4, [u8; 64]>) -> u8 {
     let mut idx = 0;
     for &byte in string.as_bytes() {
         dest[idx + 2] = byte;
@@ -128,22 +131,27 @@ unsafe extern "C" fn hid_string_descriptor(index: u8, length: *mut u32) -> *mut 
             *length = LANG_STRING_DESCRIPTOR.len() as u32;
             LANG_STRING_DESCRIPTOR.as_ptr() as *mut u8
         }
+        #[allow(static_mut_refs)]
         USB_STRING_DESCRIPTOR_IDX_MANUFACTURER => {
             *length = hid_get_string(USB_STRING_MANUFACTURER, &mut G_STRING_DESCRIPTOR) as u32;
             G_STRING_DESCRIPTOR.as_ptr() as *mut u8
         }
+        #[allow(static_mut_refs)]
         USB_STRING_DESCRIPTOR_IDX_PRODUCT => {
             *length = hid_get_string(USB_STRING_PRODUCT, &mut G_STRING_DESCRIPTOR) as u32;
             G_STRING_DESCRIPTOR.as_ptr() as *mut u8
         }
+        #[allow(static_mut_refs)]
         USB_STRING_DESCRIPTOR_IDX_SERIAL => {
             *length = hid_get_string(USB_STRING_SERIAL, &mut G_STRING_DESCRIPTOR) as u32;
             G_STRING_DESCRIPTOR.as_ptr() as *mut u8
         }
+        #[allow(static_mut_refs)]
         USB_STRING_DESCRIPTOR_IDX_CONFIG => {
             *length = hid_get_string(USB_STRING_CONFIG, &mut G_STRING_DESCRIPTOR) as u32;
             G_STRING_DESCRIPTOR.as_ptr() as *mut u8
         }
+        #[allow(static_mut_refs)]
         USB_STRING_DESCRIPTOR_IDX_INTERFACE => {
             *length = hid_get_string(USB_STRING_INTERFACE, &mut G_STRING_DESCRIPTOR) as u32;
             G_STRING_DESCRIPTOR.as_ptr() as *mut u8
@@ -157,20 +165,17 @@ unsafe extern "C" fn hid_string_descriptor(index: u8, length: *mut u32) -> *mut 
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    println!("Hello, world!");
-    println!("REPORT alignment: {}", unsafe {
-        (&REPORT as *const _ as usize) % 4 == 0
-    });
-
+    println!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
     loop {
         unsafe {
             if pac::MSS_USBD_HID_tx_done() == 1 {
+                #[allow(static_mut_refs)]
                 pac::MSS_USBD_HID_tx_report(
                     &REPORT as *const _ as *mut u8,
                     core::mem::size_of::<pac::mss_usbd_hid_report_t>() as u32,
                 );
             } else {
-                // Simple delay
+                // Delay
                 for _ in 0..50000 {
                     core::hint::spin_loop();
                 }
@@ -194,6 +199,11 @@ static DESCRIPTORS_CB: pac::mss_usbd_user_descr_cb_t = pac::mss_usbd_user_descr_
 fn init_usb() {
     println!("Initializing USB");
     unsafe {
+        pac::mss_config_clk_rst(
+            pac::mss_peripherals__MSS_PERIPH_USB,
+            pac::MPFS_HAL_FIRST_HART as u8,
+            pac::PERIPH_RESET_STATE__PERIPHERAL_OFF,
+        );
         pac::mss_config_clk_rst(
             pac::mss_peripherals__MSS_PERIPH_USB,
             pac::MPFS_HAL_FIRST_HART as u8,

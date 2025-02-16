@@ -8,6 +8,7 @@ publish = false
 mpfs-hal = { workspace = true, features = ["alloc", "print"] }
 mpfs-hal-embassy = { workspace = true, features = [] }
 
+aligned = "0.4"
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
@@ -31,7 +32,6 @@ embassy-net = { version = "0.6", features = [
 rand = { version = "0.9", default-features = false, features = ["small_rng"] }
 
 # SD example
-aligned = "0.4"
 block-device-adapters = { version = "0.2", git = "https://github.com/MabezDev/embedded-fatfs.git" }
 embedded-fatfs = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git", default-features = false, features = [
     "alloc",
