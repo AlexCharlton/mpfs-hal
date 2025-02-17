@@ -12,10 +12,12 @@ aligned = "0.4"
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
+embassy-usb = "0.4"
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 log = { workspace = true }
 static_cell = { workspace = true }
+usbd-hid = "0.8"
 
 # TCP example
 embassy-net = { version = "0.6", features = [
