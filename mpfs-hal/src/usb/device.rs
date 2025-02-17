@@ -53,6 +53,10 @@ fn init_usb() {
         pac::init_usb_dma_upper_address();
         pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
         pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
+        // TODO: Make this configurable
+        pac::MSS_USBD_CIF_init(pac::mss_usb_device_speed_t_MSS_USB_DEVICE_FS);
+        // MSS_USBD_CIF_dev_connect
+        (*pac::USB).POWER |= pac::POWER_REG_SOFT_CONN_MASK as u8;
     }
     log::debug!("USB initialized");
 }
@@ -209,4 +213,90 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
     async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver::Unsupported> {
         todo!()
     }
+}
+
+//------------------------------------------------------
+// MSS USB CIF Callbacks
+
+#[no_mangle]
+#[doc(hidden)]
+#[allow(non_upper_case_globals)]
+pub static g_mss_usbd_cb: pac::mss_usbd_cb_t = pac::mss_usbd_cb_t {
+    usbd_ep_rx: Some(usbd_ep_rx),
+    usbd_ep_tx_complete: Some(usbd_ep_tx_complete),
+    usbd_cep_setup: Some(usbd_cep_setup),
+    usbd_cep_rx: Some(usbd_cep_rx),
+    usbd_cep_tx_complete: Some(usbd_cep_tx_complete),
+    usbd_sof: Some(usbd_sof),
+    usbd_reset: Some(usbd_reset),
+    usbd_suspend: Some(usbd_suspend),
+    usbd_resume: Some(usbd_resume),
+    usbd_disconnect: Some(usbd_disconnect),
+    usbd_dma_handler: Some(usbd_dma_handler),
+};
+
+extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
+    // TODO: Implement endpoint receive callback
+    log::trace!("usbd_ep_rx: {:?}, {:?}", num, status);
+}
+
+extern "C" fn usbd_ep_tx_complete(num: pac::mss_usb_ep_num_t, status: u8) {
+    // TODO: Implement endpoint transmit complete callback
+    log::trace!("usbd_ep_tx_complete: {:?}, {:?}", num, status);
+}
+
+extern "C" fn usbd_cep_setup(status: u8) {
+    // TODO: Implement control endpoint setup callback
+    log::trace!("usbd_cep_setup: {:?}", status);
+}
+
+extern "C" fn usbd_cep_rx(status: u8) {
+    // TODO: Implement control endpoint receive callback
+    log::trace!("usbd_cep_rx: {:?}", status);
+}
+
+extern "C" fn usbd_cep_tx_complete(status: u8) {
+    // TODO: Implement control endpoint transmit complete callback
+    log::trace!("usbd_cep_tx_complete: {:?}", status);
+}
+
+extern "C" fn usbd_sof(status: u8) {
+    // TODO: Implement start of frame callback
+    log::trace!("usbd_sof: {:?}", status);
+}
+
+extern "C" fn usbd_reset() {
+    // TODO: Implement USB reset callback
+    log::trace!("usbd_reset");
+}
+
+extern "C" fn usbd_suspend() {
+    // TODO: Implement USB suspend callback
+    log::trace!("usbd_suspend");
+}
+
+extern "C" fn usbd_resume() {
+    // TODO: Implement USB resume callback
+    log::trace!("usbd_resume");
+}
+
+extern "C" fn usbd_disconnect() {
+    // TODO: Implement USB disconnect callback
+    log::trace!("usbd_disconnect");
+}
+
+extern "C" fn usbd_dma_handler(
+    ep_num: pac::mss_usb_ep_num_t,
+    dma_dir: pac::mss_usb_dma_dir_t,
+    status: u8,
+    dma_addr_val: u32,
+) {
+    // TODO: Implement DMA handler callback
+    log::trace!(
+        "usbd_dma_handler: {:?}, {:?}, {:?}, {:?}",
+        ep_num,
+        dma_dir,
+        status,
+        dma_addr_val
+    );
 }
