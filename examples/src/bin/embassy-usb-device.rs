@@ -2,7 +2,7 @@
 #![no_main]
 
 use aligned::{Aligned, A4};
-use mpfs_hal::pac;
+use mpfs_hal::{pac, Peripheral};
 
 #[macro_use]
 extern crate mpfs_hal;
@@ -198,32 +198,17 @@ static DESCRIPTORS_CB: pac::mss_usbd_user_descr_cb_t = pac::mss_usbd_user_descr_
 
 fn init_usb() {
     println!("Initializing USB");
+    let _usb_driver = mpfs_hal::usb::device::UsbDriver::take().unwrap();
+
     unsafe {
-        pac::mss_config_clk_rst(
-            pac::mss_peripherals__MSS_PERIPH_USB,
-            pac::MPFS_HAL_FIRST_HART as u8,
-            pac::PERIPH_RESET_STATE__PERIPHERAL_OFF,
-        );
-        pac::mss_config_clk_rst(
-            pac::mss_peripherals__MSS_PERIPH_USB,
-            pac::MPFS_HAL_FIRST_HART as u8,
-            pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
-        );
-        pac::init_usb_dma_upper_address();
-        pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
-        pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
-
-        pac::PLIC_EnableIRQ(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET);
-        pac::PLIC_EnableIRQ(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET);
-
         // Set up descriptor callbacks
         pac::MSS_USBD_set_descr_cb_handler(&DESCRIPTORS_CB as *const _ as *mut _);
 
         // Initialize HID Class driver
-        pac::MSS_USBD_HID_init(pac::mss_usb_device_speed_t_MSS_USB_DEVICE_HS);
+        pac::MSS_USBD_HID_init(pac::mss_usb_device_speed_t_MSS_USB_DEVICE_FS);
 
         // Initialize USB Device Core driver
-        pac::MSS_USBD_init(pac::mss_usb_device_speed_t_MSS_USB_DEVICE_HS);
+        pac::MSS_USBD_init(pac::mss_usb_device_speed_t_MSS_USB_DEVICE_FS);
     }
     println!("USB initialized");
 }

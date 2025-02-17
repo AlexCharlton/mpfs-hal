@@ -28,6 +28,7 @@ mpfs-hal-procmacros = { workspace = true }
 critical-section = { workspace = true }
 embassy-embedded-hal = { workspace = true }
 embassy-net-driver = { workspace = true }
+embassy-usb-driver = { workspace = true }
 embedded-alloc = { workspace = true, optional = true }
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }

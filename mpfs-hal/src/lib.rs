@@ -33,6 +33,7 @@ pub mod ethernet;
 pub mod gpio;
 pub mod qspi;
 pub mod uart;
+pub mod usb;
 
 //----------------------------------------------------------
 // Entry points
