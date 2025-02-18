@@ -10,7 +10,6 @@ use crate::{pac, Peripheral};
 // This should not be raised unless related constants in Endpoint Common are ammended
 const NUM_ENDPOINTS: usize = 16;
 
-static mut BUS_WAKER: Option<Waker> = None;
 // Endpoint number 1 maps to index 0
 static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS] = [const { None }; NUM_ENDPOINTS];
 static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS] = [const { None }; NUM_ENDPOINTS];
@@ -288,7 +287,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 }
             }
         });
-        // TODO: Implement bus and control pipe
+
         (
             UsbBus {
                 phantom: core::marker::PhantomData,
@@ -532,21 +531,71 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
 //------------------------------------------------------
 // Bus
 
+struct BusEvent {
+    reset: bool,
+    suspend: bool,
+    resume: bool,
+    disconnect: bool,
+}
+
+static mut BUS_EVENT_WAKER: Option<Waker> = None;
+static mut BUS_DISCONNECT_WAKER: Option<Waker> = None;
+
+static mut BUS_EVENT: BusEvent = BusEvent {
+    reset: false,
+    suspend: false,
+    resume: false,
+    disconnect: false,
+};
+
 pub struct UsbBus<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
 }
 
+impl<'a> UsbBus<'a> {
+    pub async fn await_disconnect(&self) {
+        poll_fn(move |cx| {
+            critical_section::with(|_| unsafe {
+                BUS_DISCONNECT_WAKER = Some(cx.waker().clone());
+                if BUS_EVENT.disconnect {
+                    BUS_EVENT.disconnect = false;
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+        })
+        .await
+    }
+}
+
 impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
-    async fn enable(&mut self) {
-        todo!("enable not implemented")
-    }
-
-    async fn disable(&mut self) {
-        todo!("disable not implemented")
-    }
-
     async fn poll(&mut self) -> Event {
-        todo!("poll not implemented")
+        let ret = poll_fn(move |cx| {
+            critical_section::with(|_| unsafe {
+                BUS_EVENT_WAKER = Some(cx.waker().clone());
+                if BUS_EVENT.reset {
+                    BUS_EVENT.reset = false;
+                    Poll::Ready(Event::Reset)
+                } else if BUS_EVENT.suspend {
+                    BUS_EVENT.suspend = false;
+                    Poll::Ready(Event::Suspend)
+                } else if BUS_EVENT.resume {
+                    BUS_EVENT.resume = false;
+                    Poll::Ready(Event::Resume)
+                } else {
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
+        if ret == Event::Reset {
+            log::debug!("Resetting USB");
+            unsafe {
+                pac::MSS_USB_CIF_soft_reset();
+            }
+        }
+        ret
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -561,8 +610,13 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
         todo!("endpoint_is_stalled not implemented")
     }
 
+    async fn enable(&mut self) {}
+    async fn disable(&mut self) {}
+
     async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver::Unsupported> {
-        todo!("remote_wakeup not implemented")
+        // TODO: Does the MPFS support this? The platform code seems to hint at its existence,
+        // yet I don't see any way to actually create a remote wakeup signal.
+        Err(embassy_usb_driver::Unsupported)
     }
 }
 
@@ -617,23 +671,47 @@ extern "C" fn usbd_sof(status: u8) {
 }
 
 extern "C" fn usbd_reset() {
-    // TODO: Implement USB reset callback
     log::trace!("usbd_reset");
+    critical_section::with(|_| unsafe {
+        BUS_EVENT.reset = true;
+        #[allow(static_mut_refs)]
+        if let Some(waker) = BUS_EVENT_WAKER.as_mut() {
+            waker.wake_by_ref();
+        }
+    });
 }
 
 extern "C" fn usbd_suspend() {
-    // TODO: Implement USB suspend callback
     log::trace!("usbd_suspend");
+    critical_section::with(|_| unsafe {
+        BUS_EVENT.suspend = true;
+        #[allow(static_mut_refs)]
+        if let Some(waker) = BUS_EVENT_WAKER.as_mut() {
+            waker.wake_by_ref();
+        }
+    });
 }
 
 extern "C" fn usbd_resume() {
-    // TODO: Implement USB resume callback
     log::trace!("usbd_resume");
+    critical_section::with(|_| unsafe {
+        BUS_EVENT.resume = true;
+        #[allow(static_mut_refs)]
+        if let Some(waker) = BUS_EVENT_WAKER.as_mut() {
+            waker.wake_by_ref();
+        }
+    });
 }
 
 extern "C" fn usbd_disconnect() {
-    // TODO: Implement USB disconnect callback
     log::trace!("usbd_disconnect");
+    critical_section::with(|_| unsafe {
+        BUS_EVENT.disconnect = true;
+        #[allow(static_mut_refs)]
+        if let Some(waker) = BUS_DISCONNECT_WAKER.as_mut() {
+            waker.wake_by_ref();
+        }
+    });
 }
 
 extern "C" fn usbd_dma_handler(
