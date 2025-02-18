@@ -1,16 +1,22 @@
-use crate::Peripheral;
-use mpfs_pac as pac;
-
+use core::future::poll_fn;
+use core::task::{Poll, Waker};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType,
     Event,
 };
 
+use crate::{pac, Peripheral};
+
 // This should not be raised unless related constants in Endpoint Common are ammended
 const NUM_ENDPOINTS: usize = 16;
 
+static mut BUS_WAKER: Option<Waker> = None;
+// Endpoint number 1 maps to index 0
+static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS] = [const { None }; NUM_ENDPOINTS];
+static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS] = [const { None }; NUM_ENDPOINTS];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum UsbSpeed {
+enum UsbSpeed {
     Full, // 12Mbps
     High, // 480Mbps
 }
@@ -26,30 +32,44 @@ impl UsbSpeed {
 
 impl Default for UsbSpeed {
     fn default() -> Self {
-        UsbSpeed::Full
+        UsbSpeed::High
     }
 }
 
 //------------------------------------------------------
 // Driver
 
-#[derive(Default)]
 struct EndpointDetails {
     used: bool,
     fifo_addr: u16,
     fifo_size: u16,
+    endpoint_type: EndpointType,
+    max_packet_size: u16,
+}
+
+impl Default for EndpointDetails {
+    fn default() -> Self {
+        Self {
+            used: false,
+            fifo_addr: 0,
+            fifo_size: 0,
+            endpoint_type: EndpointType::Interrupt,
+            max_packet_size: 0,
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct UsbDriver<'a> {
-    initialized: bool,
     speed: UsbSpeed,
     phantom: core::marker::PhantomData<&'a ()>,
+    // Endpoint number 1 maps to index 0
     in_endpoints_allocated: [EndpointDetails; NUM_ENDPOINTS],
     out_endpoints_allocated: [EndpointDetails; NUM_ENDPOINTS],
 }
 
 static mut DRIVER_TAKEN: bool = false;
+static mut DRIVER_INITIALIZED: bool = false;
 
 impl<'a> Peripheral for UsbDriver<'a> {
     fn take() -> Option<Self> {
@@ -69,7 +89,11 @@ impl<'a> Peripheral for UsbDriver<'a> {
 }
 
 impl<'a> UsbDriver<'a> {
-    pub fn init(&mut self, speed: UsbSpeed) {
+    pub fn set_full_speed(&mut self) {
+        self.speed = UsbSpeed::Full;
+    }
+
+    fn init(&self) {
         unsafe {
             // Unlike the other peripherals, the USB peripheral needs to be explicitly
             // turned off and on, or else DMA won't work.
@@ -86,12 +110,10 @@ impl<'a> UsbDriver<'a> {
             pac::init_usb_dma_upper_address();
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
-            pac::MSS_USBD_CIF_init(speed.value());
+            pac::MSS_USBD_CIF_init(self.speed.value());
             // MSS_USBD_CIF_dev_connect
             (*pac::USB).POWER |= pac::POWER_REG_SOFT_CONN_MASK as u8;
         }
-        self.initialized = true;
-        self.speed = speed;
         log::debug!("USB initialized");
     }
 }
@@ -142,16 +164,18 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 used: true,
                 fifo_addr: fifo_addr,
                 fifo_size: fifo_size,
+                endpoint_type: endpoint_type,
+                max_packet_size: max_packet_size,
             };
-            Ok(EndpointOut::new(
-                i,
-                endpoint_type,
-                max_packet_size,
-                interval_ms,
-                fifo_addr,
-                fifo_size,
-                self.speed,
-            ))
+            Ok(EndpointOut {
+                phantom: core::marker::PhantomData,
+                info: EndpointInfo {
+                    addr: EndpointAddress::from_parts(i + 1, Direction::Out),
+                    max_packet_size: max_packet_size,
+                    interval_ms: interval_ms,
+                    ep_type: endpoint_type,
+                },
+            })
         } else {
             Err(EndpointAllocError)
         }
@@ -198,24 +222,81 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 used: true,
                 fifo_addr: fifo_addr,
                 fifo_size: fifo_size,
+                endpoint_type: endpoint_type,
+                max_packet_size: max_packet_size,
             };
 
-            Ok(EndpointIn::new(
-                i,
-                endpoint_type,
-                max_packet_size,
-                interval_ms,
-                fifo_addr,
-                fifo_size,
-                self.speed,
-            ))
+            Ok(EndpointIn {
+                phantom: core::marker::PhantomData,
+                info: EndpointInfo {
+                    addr: EndpointAddress::from_parts(i + 1, Direction::In),
+                    max_packet_size: max_packet_size,
+                    interval_ms: interval_ms,
+                    ep_type: endpoint_type,
+                },
+            })
         } else {
             Err(EndpointAllocError)
         }
     }
 
     fn start(self, _control_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        todo!("start not implemented")
+        self.init();
+        for (i, ep) in self.in_endpoints_allocated.iter().enumerate() {
+            if ep.used {
+                configure_endpoint(
+                    Direction::In,
+                    i + 1,
+                    ep.endpoint_type,
+                    ep.max_packet_size,
+                    ep.fifo_addr,
+                    ep.fifo_size,
+                    self.speed,
+                );
+            } else {
+                break;
+            }
+        }
+        for (i, ep) in self.out_endpoints_allocated.iter().enumerate() {
+            if ep.used {
+                configure_endpoint(
+                    Direction::Out,
+                    i + 1,
+                    ep.endpoint_type,
+                    ep.max_packet_size,
+                    ep.fifo_addr,
+                    ep.fifo_size,
+                    self.speed,
+                );
+            } else {
+                break;
+            }
+        }
+        critical_section::with(|_| unsafe {
+            DRIVER_INITIALIZED = true;
+
+            #[allow(static_mut_refs)]
+            for waker in EP_IN_WAKERS.iter() {
+                if let Some(waker) = waker {
+                    waker.wake_by_ref();
+                }
+            }
+            #[allow(static_mut_refs)]
+            for waker in EP_OUT_WAKERS.iter() {
+                if let Some(waker) = waker {
+                    waker.wake_by_ref();
+                }
+            }
+        });
+        // TODO: Implement bus and control pipe
+        (
+            UsbBus {
+                phantom: core::marker::PhantomData,
+            },
+            ControlPipe {
+                phantom: core::marker::PhantomData,
+            },
+        )
     }
 }
 
@@ -225,38 +306,6 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
 pub struct EndpointOut<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     info: EndpointInfo,
-}
-
-impl<'a> EndpointOut<'a> {
-    pub fn new(
-        i: usize,
-        endpoint_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-        fifo_addr: u16,
-        fifo_size: u16,
-        speed: UsbSpeed,
-    ) -> Self {
-        configure_endpoint(
-            Direction::Out,
-            i,
-            endpoint_type,
-            max_packet_size,
-            fifo_addr,
-            fifo_size,
-            speed,
-        );
-
-        Self {
-            phantom: core::marker::PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(i, Direction::Out),
-                max_packet_size: max_packet_size,
-                interval_ms: interval_ms,
-                ep_type: endpoint_type,
-            },
-        }
-    }
 }
 
 impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
@@ -271,7 +320,20 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
     }
 
     async fn wait_enabled(&mut self) {
-        // No need to wait, the endpoint is enabled by default
+        log::trace!("wait_enabled OUT WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            critical_section::with(|_| unsafe {
+                EP_OUT_WAKERS[index - 1] = Some(cx.waker().clone());
+            });
+            if unsafe { DRIVER_INITIALIZED } {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        log::trace!("wait_enabled OUT OK");
     }
 }
 
@@ -281,37 +343,6 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
 pub struct EndpointIn<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     info: EndpointInfo,
-}
-
-impl<'a> EndpointIn<'a> {
-    pub fn new(
-        i: usize,
-        endpoint_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-        fifo_addr: u16,
-        fifo_size: u16,
-        speed: UsbSpeed,
-    ) -> Self {
-        configure_endpoint(
-            Direction::In,
-            i,
-            endpoint_type,
-            max_packet_size,
-            fifo_addr,
-            fifo_size,
-            speed,
-        );
-        Self {
-            phantom: core::marker::PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(i, Direction::In),
-                max_packet_size: max_packet_size,
-                interval_ms: interval_ms,
-                ep_type: endpoint_type,
-            },
-        }
-    }
 }
 
 impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
@@ -326,7 +357,20 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
     }
 
     async fn wait_enabled(&mut self) {
-        // No need to wait, the endpoint is enabled by default
+        log::trace!("wait_enabled IN WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            critical_section::with(|_| unsafe {
+                EP_IN_WAKERS[index - 1] = Some(cx.waker().clone());
+            });
+            if unsafe { DRIVER_INITIALIZED } {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        log::trace!("wait_enabled IN OK");
     }
 }
 

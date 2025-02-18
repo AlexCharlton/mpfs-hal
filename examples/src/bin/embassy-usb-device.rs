@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+// https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usb_hid_mouse.rs used as reference
+
 use aligned::{Aligned, A4};
 use embassy_futures::join::join;
 use embassy_time::Timer;
