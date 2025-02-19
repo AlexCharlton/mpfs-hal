@@ -10,9 +10,9 @@ use crate::{pac, Peripheral};
 // This should not be raised unless related constants in Endpoint Common are ammended
 const NUM_ENDPOINTS: usize = 16;
 
-// Endpoint number 1 maps to index 0
-static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS] = [const { None }; NUM_ENDPOINTS];
-static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS] = [const { None }; NUM_ENDPOINTS];
+// +1 for the control endpoint
+static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
+static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum UsbSpeed {
@@ -110,6 +110,7 @@ impl<'a> UsbDriver<'a> {
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
             pac::MSS_USBD_CIF_init(self.speed.value());
+            pac::MSS_USBD_CIF_cep_configure();
             // MSS_USBD_CIF_dev_connect
             (*pac::USB).POWER |= pac::POWER_REG_SOFT_CONN_MASK as u8;
         }
@@ -130,7 +131,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
         log::trace!(
-            "alloc_endpoint_out: {:?}, {:?}",
+            "UsbDriver::alloc_endpoint_out: {:?}, {:?}",
             endpoint_type,
             max_packet_size
         );
@@ -187,7 +188,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
         log::trace!(
-            "alloc_endpoint_in: {:?}, {:?}",
+            "UsbDriver::alloc_endpoint_in: {:?}, {:?}",
             endpoint_type,
             max_packet_size
         );
@@ -239,7 +240,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
         }
     }
 
-    fn start(self, _control_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         self.init();
         for (i, ep) in self.in_endpoints_allocated.iter().enumerate() {
             if ep.used {
@@ -294,6 +295,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             },
             ControlPipe {
                 phantom: core::marker::PhantomData,
+                max_packet_size: control_packet_size as usize,
             },
         )
     }
@@ -319,11 +321,11 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
     }
 
     async fn wait_enabled(&mut self) {
-        log::trace!("wait_enabled OUT WAITING");
+        log::trace!("USB EndpointOut::wait_enabled WAITING");
         let index = self.info.addr.index();
         poll_fn(|cx| {
             critical_section::with(|_| unsafe {
-                EP_OUT_WAKERS[index - 1] = Some(cx.waker().clone());
+                EP_OUT_WAKERS[index] = Some(cx.waker().clone());
             });
             if unsafe { DRIVER_INITIALIZED } {
                 Poll::Ready(())
@@ -332,7 +334,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
             }
         })
         .await;
-        log::trace!("wait_enabled OUT OK");
+        log::trace!("USB EndpointOut::wait_enabled OK");
     }
 }
 
@@ -346,7 +348,20 @@ pub struct EndpointIn<'a> {
 
 impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
     async fn write(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        todo!("write not implemented")
+        log::trace!(
+            "USB EndpointIn::write {} : {:?}",
+            self.info.addr.index(),
+            data
+        );
+        poll_fn(move |cx| {
+            critical_section::with(|_| unsafe {
+                EP_IN_WAKERS[self.info.addr.index()] = Some(cx.waker().clone());
+                // TODO
+                Poll::Pending::<()>
+            })
+        })
+        .await;
+        Ok(())
     }
 }
 
@@ -356,11 +371,11 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
     }
 
     async fn wait_enabled(&mut self) {
-        log::trace!("wait_enabled IN WAITING");
+        log::trace!("USB EndpointIn::wait_enabled WAITING");
         let index = self.info.addr.index();
         poll_fn(|cx| {
             critical_section::with(|_| unsafe {
-                EP_IN_WAKERS[index - 1] = Some(cx.waker().clone());
+                EP_IN_WAKERS[index] = Some(cx.waker().clone());
             });
             if unsafe { DRIVER_INITIALIZED } {
                 Poll::Ready(())
@@ -369,7 +384,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
             }
         })
         .await;
-        log::trace!("wait_enabled IN OK");
+        log::trace!("USB EndpointIn::wait_enabled OK");
     }
 }
 
@@ -441,6 +456,7 @@ fn configure_endpoint(
         // Configure double packet buffering if there's enough FIFO space reserved
         let dpb_enable = max_packet_size * 2 <= fifo_size;
 
+        // TODO: I think we need to save this for reuse
         let mut ep = pac::mss_usb_ep_t {
             num: endpoint as u32,
             xfr_type: transfer_type(endpoint_type),
@@ -450,7 +466,9 @@ fn configure_endpoint(
             dma_enable: dma_enable as u8,
             dpb_enable: dpb_enable as u8,
             dma_channel,
-            add_zlp: 0,     // Should this be configurable?
+
+            // Not applicable for configuration
+            add_zlp: 0,     // Used by the high-level driver that we don't use
             num_usb_pkt: 1, // This must always be 1, according to mss_usb_device.h
 
             // Not used for configuration
@@ -489,19 +507,53 @@ fn transfer_type(endpoint_type: EndpointType) -> pac::mss_usb_xfr_type_t {
 //------------------------------------------------------
 // ControlPipe
 
+struct ControlEvent {
+    setup: bool,
+    data_out: bool,
+    data_in: bool,
+    status: bool,
+}
+
+static mut CONTROL_EVENTS: ControlEvent = ControlEvent {
+    setup: false,
+    data_out: false,
+    data_in: false,
+    status: false,
+};
+
 pub struct ControlPipe<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
+    max_packet_size: usize,
 }
 
 impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
     fn max_packet_size(&self) -> usize {
-        todo!("max_packet_size not implemented")
+        self.max_packet_size
     }
 
     async fn setup(&mut self) -> [u8; 8] {
-        todo!("setup not implemented")
+        log::trace!("USB ControlPipe::setup");
+        poll_fn(move |cx| {
+            critical_section::with(|_| unsafe {
+                EP_OUT_WAKERS[0] = Some(cx.waker().clone());
+                if CONTROL_EVENTS.setup && pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0 {
+                    CONTROL_EVENTS.setup = false;
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
+
+        let mut setup_packet = [0; 8];
+        read_control_packet(&mut setup_packet, self.max_packet_size);
+        log::trace!("USB ControlPipe::setup packet: {:?}", setup_packet);
+        setup_packet
     }
 
+    // TODO
+    // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`
     async fn data_out(
         &mut self,
         buf: &mut [u8],
@@ -511,6 +563,8 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
         todo!("data_out not implemented")
     }
 
+    // TODO
+    // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
         todo!("data_in not implemented")
     }
@@ -525,6 +579,38 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
 
     async fn accept_set_address(&mut self, addr: u8) {
         todo!("accept_set_address not implemented")
+    }
+}
+
+fn read_control_packet(buf: &mut [u8], max_pkt_size: usize) {
+    unsafe {
+        let mut ep = pac::mss_usb_ep_t {
+            num: 0,
+            buf_addr: buf.as_mut_ptr() as *mut u8,
+            txn_length: buf.len() as u32,
+            xfr_length: buf.len() as u32,
+            max_pkt_size: max_pkt_size as u16,
+            xfr_type: pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
+            state: pac::mss_usb_ep_state_t_MSS_USB_CEP_RX,
+
+            num_usb_pkt: 1,
+            dpb_enable: 0,
+            dma_channel: pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA,
+            dma_enable: 0,
+            fifo_addr: 0,
+            fifo_size: 0,
+            cep_cmd_addr: core::ptr::null_mut(),
+            cep_data_dir: 0,
+            disable_ping: 0,
+            interval: 0,
+            stall: 0,
+            req_pkt_n: 0,
+            tdev_idx: 0,
+            txn_count: 0,
+            xfr_count: 0,
+            add_zlp: 0,
+        };
+        pac::MSS_USBD_CIF_cep_read_pkt(&mut ep);
     }
 }
 
@@ -574,12 +660,14 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
         let ret = poll_fn(move |cx| {
             critical_section::with(|_| unsafe {
                 BUS_EVENT_WAKER = Some(cx.waker().clone());
-                if BUS_EVENT.reset {
-                    BUS_EVENT.reset = false;
-                    Poll::Ready(Event::Reset)
-                } else if BUS_EVENT.suspend {
+                // The order here matters since a host may send a suspend and reset
+                // quick succession, and we want to handle the reset first
+                if BUS_EVENT.suspend {
                     BUS_EVENT.suspend = false;
                     Poll::Ready(Event::Suspend)
+                } else if BUS_EVENT.reset {
+                    BUS_EVENT.reset = false;
+                    Poll::Ready(Event::Reset)
                 } else if BUS_EVENT.resume {
                     BUS_EVENT.resume = false;
                     Poll::Ready(Event::Resume)
@@ -589,10 +677,12 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
             })
         })
         .await;
+        log::debug!("USB poll: {:?}", ret);
         if ret == Event::Reset {
-            log::debug!("Resetting USB");
             unsafe {
-                pac::MSS_USB_CIF_soft_reset();
+                // pac::MSS_USB_CIF_soft_reset();
+                // TODO: Is this needed?
+                pac::MSS_USBD_CIF_cep_configure();
             }
         }
         ret
@@ -651,8 +741,24 @@ extern "C" fn usbd_ep_tx_complete(num: pac::mss_usb_ep_num_t, status: u8) {
 }
 
 extern "C" fn usbd_cep_setup(status: u8) {
-    // TODO: Implement control endpoint setup callback
     log::trace!("usbd_cep_setup: {:?}", status);
+    // This is called in three cases:
+    // 1. When the control endpoint is stalled
+    // 2. When the control endpoint recieves a setup packet before the setup has completed
+    // 3. When the control endpoint recieves a normal setup packet
+    //
+    // The CIF clears the PHY of the stall in the first case already, so there's nothing left to do
+    // The other two we can handle the same (I think?)
+    critical_section::with(|_| unsafe {
+        CONTROL_EVENTS.setup = true;
+        #[allow(static_mut_refs)]
+        if let Some(waker) = EP_OUT_WAKERS[0].as_mut() {
+            waker.wake_by_ref();
+        }
+        if let Some(waker) = EP_IN_WAKERS[0].as_mut() {
+            waker.wake_by_ref();
+        }
+    });
 }
 
 extern "C" fn usbd_cep_rx(status: u8) {
