@@ -25,6 +25,7 @@ beaglev-fire = ["mpfs-pac/beaglev-fire"]
 mpfs-pac = { workspace = true }
 mpfs-hal-procmacros = { workspace = true }
 
+aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-embedded-hal = { workspace = true }
 embassy-net-driver = { workspace = true }

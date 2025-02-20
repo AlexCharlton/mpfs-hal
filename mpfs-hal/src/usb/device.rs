@@ -1,3 +1,6 @@
+use crate::Mutex;
+
+use aligned::{Aligned, A4};
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 use embassy_usb_driver::{
@@ -14,6 +17,12 @@ const NUM_ENDPOINTS: usize = 16;
 // +1 for the control endpoint at index 0
 static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
 static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
+
+// In case a non-aligned buffer is needed, we reserve this one
+// We'll warn if it's used
+static mut ALIGNED_BUFFER: Aligned<A4, [u8; MAX_FIFO_SIZE as usize]> =
+    Aligned::<A4, _>([0; MAX_FIFO_SIZE as usize]);
+static ALIGNED_BUFFER_MUTEX: Mutex = Mutex::new();
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum UsbSpeed {
@@ -518,23 +527,29 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
 
     async fn setup(&mut self) -> [u8; 8] {
         log::trace!("USB ControlPipe::setup");
-        poll_fn(move |cx| {
-            critical_section::with(|_| unsafe {
-                EP_OUT_WAKERS[0] = Some(cx.waker().clone());
-                if CONTROL_EVENTS.setup && pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0 {
-                    CONTROL_EVENTS.setup = false;
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
+        loop {
+            poll_fn(move |cx| {
+                critical_section::with(|_| unsafe {
+                    EP_OUT_WAKERS[0] = Some(cx.waker().clone());
+                    if CONTROL_EVENTS.setup && pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0 {
+                        CONTROL_EVENTS.setup = false;
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
             })
-        })
-        .await;
+            .await;
 
-        let mut setup_packet = [0; 8];
-        read_control_packet(&mut setup_packet, self.max_packet_size);
-        log::trace!("USB ControlPipe::setup packet: {:x?}", setup_packet);
-        setup_packet
+            let mut setup_packet = [0; 8];
+            read_control_packet(&mut setup_packet, self.max_packet_size);
+            // For some reason, sometimes the packet wasn't actually ready.
+            // If we loop here and wait for the next interrupt, we seem to get the right packet.
+            if setup_packet != [0; 8] {
+                log::trace!("USB ControlPipe::setup packet: {:x?}", setup_packet);
+                return setup_packet;
+            }
+        }
     }
 
     // Host -> Device
@@ -561,15 +576,21 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             last
         );
 
-        assert!(
-            data.as_ptr().align_offset(4) == 0,
-            "Endpoint data must be 32-bit aligned"
-        );
+        let mut aligned_buffer = data;
+        let mut lock_token = None;
+
+        #[allow(static_mut_refs)]
         unsafe {
+            if data.as_ptr().align_offset(4) != 0 {
+                log::warn!("Endpoint data should be 32-bit aligned");
+                lock_token = Some(ALIGNED_BUFFER_MUTEX.lock());
+                ALIGNED_BUFFER[..data.len()].copy_from_slice(data);
+                aligned_buffer = &ALIGNED_BUFFER[..data.len()];
+            }
             let mut ep = default_ep();
             ep.num = 0;
-            ep.buf_addr = data.as_ptr() as *mut u8;
-            ep.txn_length = data.len() as u32;
+            ep.buf_addr = aligned_buffer.as_ptr() as *mut u8;
+            ep.txn_length = aligned_buffer.len() as u32;
             ep.max_pkt_size = self.max_packet_size as u16;
             // When last is true, we send a zero length packet after the transfer
             // This means that xfr_count == xfr_length
@@ -578,6 +599,10 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             ep.xfr_count = 0;
             ep.xfr_length = if last { 0 } else { 1 };
             pac::MSS_USBD_CIF_cep_write_pkt(&mut ep);
+        }
+
+        if let Some(lock_token) = lock_token {
+            ALIGNED_BUFFER_MUTEX.release(lock_token);
         }
         Ok(())
     }
@@ -735,6 +760,12 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        log::trace!(
+            "USB Bus::endpoint_set_enabled: {:?}{}, {:?}",
+            ep_addr.direction(),
+            ep_addr.index(),
+            enabled
+        );
         todo!("endpoint_set_enabled not implemented")
     }
 

@@ -8,7 +8,7 @@ publish = false
 mpfs-hal = { workspace = true, features = ["alloc", "print"] }
 mpfs-hal-embassy = { workspace = true, features = [] }
 
-aligned = "0.4"
+aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
