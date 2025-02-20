@@ -10,7 +10,8 @@ use crate::{pac, Peripheral};
 // This should not be raised unless related constants in Endpoint Common are ammended
 const NUM_ENDPOINTS: usize = 16;
 
-// +1 for the control endpoint
+// Endpoints are named relative to the host, so In is a device TX and Out is a device RX
+// +1 for the control endpoint at index 0
 static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
 static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
 
@@ -304,6 +305,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
 //------------------------------------------------------
 // EndpointOut
 
+// Host -> Device
 pub struct EndpointOut<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     info: EndpointInfo,
@@ -341,6 +343,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
 //------------------------------------------------------
 // EndpointIn
 
+// Device -> Host
 pub struct EndpointIn<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     info: EndpointInfo,
@@ -466,25 +469,7 @@ fn configure_endpoint(
             dma_enable: dma_enable as u8,
             dpb_enable: dpb_enable as u8,
             dma_channel,
-
-            // Not applicable for configuration
-            add_zlp: 0,     // Used by the high-level driver that we don't use
-            num_usb_pkt: 1, // This must always be 1, according to mss_usb_device.h
-
-            // Not used for configuration
-            state: pac::mss_usb_ep_state_t_MSS_USB_EP_VALID,
-            buf_addr: core::ptr::null_mut(),
-            cep_cmd_addr: core::ptr::null_mut(),
-            cep_data_dir: 0,
-            disable_ping: 0,
-            interval: 0,
-            stall: 0,
-            req_pkt_n: 0,
-            tdev_idx: 0,
-            txn_count: 0,
-            txn_length: 0,
-            xfr_count: 0,
-            xfr_length: 0,
+            ..default_ep()
         };
 
         if direction == Direction::Out {
@@ -548,12 +533,13 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
 
         let mut setup_packet = [0; 8];
         read_control_packet(&mut setup_packet, self.max_packet_size);
-        log::trace!("USB ControlPipe::setup packet: {:?}", setup_packet);
+        log::trace!("USB ControlPipe::setup packet: {:x?}", setup_packet);
         setup_packet
     }
 
-    // TODO
+    // Host -> Device
     // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`
+    // TODO: Is there actually a point where we can do this?
     async fn data_out(
         &mut self,
         buf: &mut [u8],
@@ -561,16 +547,48 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
         last: bool,
     ) -> Result<usize, EndpointError> {
         todo!("data_out not implemented")
+
+        // It does not seem like we need to do anything special when last is true
     }
 
-    // TODO
+    // Device -> Host
     // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
-        todo!("data_in not implemented")
+        log::trace!(
+            "USB ControlPipe::data_in: {:x?}, {:?}, {:?}",
+            data,
+            first,
+            last
+        );
+
+        assert!(
+            data.as_ptr().align_offset(4) == 0,
+            "Endpoint data must be 32-bit aligned"
+        );
+        unsafe {
+            let mut ep = default_ep();
+            ep.num = 0;
+            ep.buf_addr = data.as_ptr() as *mut u8;
+            ep.txn_length = data.len() as u32;
+            ep.max_pkt_size = self.max_packet_size as u16;
+            // When last is true, we send a zero length packet after the transfer
+            // This means that xfr_count == xfr_length
+            // Otherwise, xfr_count < xfr_length
+            // The specifics of these numbers are otherwise not important
+            ep.xfr_count = 0;
+            ep.xfr_length = if last { 0 } else { 1 };
+            pac::MSS_USBD_CIF_cep_write_pkt(&mut ep);
+        }
+        Ok(())
     }
 
     async fn accept(&mut self) {
-        todo!("accept not implemented")
+        unsafe {
+            // MSS_USBD_CIF_cep_end_zdr()
+            (*pac::USB).INDEXED_CSR.DEVICE_EP0.CSR0 =
+                (pac::CSR0L_DEV_SERVICED_RX_PKT_RDY_MASK | pac::CSR0L_DEV_DATA_END_MASK) as u16;
+        }
+        log::trace!("USB ControlPipe::accept");
     }
 
     async fn reject(&mut self) {
@@ -578,7 +596,17 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
-        todo!("accept_set_address not implemented")
+        self.accept().await;
+        // Unless we wait here, the zero length packet is not sent
+        // See: mss_usb_device.c:mss_usbd_cep_setup_cb
+        for _ in 0..5000 {
+            core::hint::spin_loop();
+        }
+
+        unsafe {
+            ((*pac::USB).FADDR) = addr;
+        }
+        log::trace!("USB ControlPipe::accept_set_address: {}", addr);
     }
 }
 
@@ -593,24 +621,44 @@ fn read_control_packet(buf: &mut [u8], max_pkt_size: usize) {
             xfr_type: pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
             state: pac::mss_usb_ep_state_t_MSS_USB_CEP_RX,
 
-            num_usb_pkt: 1,
-            dpb_enable: 0,
-            dma_channel: pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA,
-            dma_enable: 0,
-            fifo_addr: 0,
-            fifo_size: 0,
-            cep_cmd_addr: core::ptr::null_mut(),
-            cep_data_dir: 0,
-            disable_ping: 0,
-            interval: 0,
-            stall: 0,
-            req_pkt_n: 0,
-            tdev_idx: 0,
-            txn_count: 0,
-            xfr_count: 0,
-            add_zlp: 0,
+            ..default_ep()
         };
         pac::MSS_USBD_CIF_cep_read_pkt(&mut ep);
+    }
+}
+
+const fn default_ep() -> pac::mss_usb_ep_t {
+    pac::mss_usb_ep_t {
+        // Important for configuration
+        num: 0,
+        xfr_type: pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
+        max_pkt_size: 0,
+        fifo_size: 0,
+        fifo_addr: 0,
+        dma_enable: 0,
+        dpb_enable: 0,
+        dma_channel: pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA,
+
+        // Used for transfer
+        buf_addr: core::ptr::null_mut(),
+        txn_length: 0,
+        xfr_length: 0,
+        txn_count: 0,
+        xfr_count: 0,
+        state: pac::mss_usb_ep_state_t_MSS_USB_EP_VALID,
+
+        // Used for configuration by the high-level driver, but not by this
+        add_zlp: 0,     // Used by the high-level driver that we don't use
+        num_usb_pkt: 1, // This must always be 1, according to mss_usb_device.h
+
+        // Unsued?
+        cep_cmd_addr: core::ptr::null_mut(),
+        cep_data_dir: 0,
+        disable_ping: 0,
+        interval: 0,
+        stall: 0,
+        req_pkt_n: 0,
+        tdev_idx: 0,
     }
 }
 
@@ -680,8 +728,6 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
         log::debug!("USB poll: {:?}", ret);
         if ret == Event::Reset {
             unsafe {
-                // pac::MSS_USB_CIF_soft_reset();
-                // TODO: Is this needed?
                 pac::MSS_USBD_CIF_cep_configure();
             }
         }
