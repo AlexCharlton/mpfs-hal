@@ -13,14 +13,46 @@ use crate::{pac, Peripheral};
 // This should not be raised unless related constants in Endpoint Common are ammended
 const NUM_ENDPOINTS: usize = 16;
 
+#[derive(Debug)]
+struct EndpointController {
+    ep: pac::mss_usb_ep_t,
+    waker: Option<Waker>,
+    state: EndpointState,
+}
+
+impl EndpointController {
+    const fn default() -> Self {
+        EndpointController {
+            ep: default_ep(),
+            waker: None,
+            state: EndpointState::Disabled,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum EndpointState {
+    Idle,
+    Rx,
+    Tx,
+    Setup,
+    RxComplete,
+    TxComplete,
+    Disabled,
+}
+
+impl Default for EndpointState {
+    fn default() -> Self {
+        EndpointState::Disabled
+    }
+}
+
 // Endpoints are named relative to the host, so In is a device TX and Out is a device RX
 // +1 for the control endpoint at index 0
-static mut EP_IN_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
-static mut EP_OUT_WAKERS: [Option<Waker>; NUM_ENDPOINTS + 1] = [const { None }; NUM_ENDPOINTS + 1];
-static mut EP_IN_CONTROL: [pac::mss_usb_ep_t; NUM_ENDPOINTS + 1] =
-    [const { default_ep() }; NUM_ENDPOINTS + 1];
-static mut EP_OUT_CONTROL: [pac::mss_usb_ep_t; NUM_ENDPOINTS + 1] =
-    [const { default_ep() }; NUM_ENDPOINTS + 1];
+static mut EP_IN_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
+    [const { None }; NUM_ENDPOINTS + 1];
+static mut EP_OUT_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
+    [const { None }; NUM_ENDPOINTS + 1];
 
 // In case a non-aligned buffer is needed, we reserve this one
 // We'll warn if it's used
@@ -92,7 +124,7 @@ impl<'a> UsbDriver<'a> {
         self.speed = UsbSpeed::Full;
     }
 
-    fn init(&self) {
+    fn init(&self, control_packet_size: u16) {
         unsafe {
             // Unlike the other peripherals, the USB peripheral needs to be explicitly
             // turned off and on, or else DMA won't work.
@@ -111,10 +143,21 @@ impl<'a> UsbDriver<'a> {
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
             pac::MSS_USBD_CIF_init(self.speed.value());
             pac::MSS_USBD_CIF_cep_configure();
+            EP_IN_CONTROLLER[0] = Some({
+                let mut ep = EndpointController::default();
+                ep.ep.max_pkt_size = control_packet_size;
+                ep.state = EndpointState::Idle;
+                ep
+            });
+            EP_OUT_CONTROLLER[0] = Some({
+                let mut ep = EndpointController::default();
+                ep.ep.max_pkt_size = control_packet_size;
+                ep.state = EndpointState::Idle;
+                ep
+            });
             // MSS_USBD_CIF_dev_connect
             (*pac::USB).POWER |= pac::POWER_REG_SOFT_CONN_MASK as u8;
         }
-        log::debug!("USB initialized");
     }
 }
 
@@ -165,7 +208,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 fifo_addr: fifo_addr,
                 fifo_size: fifo_size,
             };
-            configure_endpoint_control(
+            configure_endpoint_controller(
                 Direction::Out,
                 i + 1,
                 endpoint_type,
@@ -230,7 +273,15 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 fifo_addr: fifo_addr,
                 fifo_size: fifo_size,
             };
-
+            configure_endpoint_controller(
+                Direction::In,
+                i + 1,
+                endpoint_type,
+                max_packet_size,
+                fifo_addr,
+                fifo_size,
+                self.speed,
+            );
             Ok(EndpointIn {
                 phantom: core::marker::PhantomData,
                 info: EndpointInfo {
@@ -246,7 +297,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
     }
 
     fn start(self, control_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        self.init();
+        self.init(control_packet_size);
         for (i, ep) in self.in_endpoints_allocated.iter().enumerate() {
             if ep.used {
                 configure_endpoint(Direction::In, i + 1);
@@ -261,6 +312,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 break;
             }
         }
+        log::debug!("USB initialized");
         (
             UsbBus {
                 phantom: core::marker::PhantomData,
@@ -303,10 +355,10 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             critical_section::with(|_| unsafe {
-                if EP_OUT_CONTROL[index].stall != 66 {
+                if EP_OUT_CONTROLLER[index].as_ref().unwrap().state != EndpointState::Disabled {
                     Poll::Ready(())
                 } else {
-                    EP_OUT_WAKERS[index] = Some(cx.waker().clone());
+                    EP_OUT_CONTROLLER[index].as_mut().unwrap().waker = Some(cx.waker().clone());
                     Poll::Pending
                 }
             })
@@ -330,18 +382,49 @@ pub struct EndpointIn<'a> {
 
 impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
     async fn write(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        log::trace!(
-            "USB EndpointIn::write {} : {:?}",
-            self.info.addr.index(),
-            data
-        );
+        let index = self.info.addr.index();
+        log::trace!("USB EndpointIn::write {} : {:?}", index, data);
         self.wait_enabled().await;
-        todo!("write not implemented");
+        let mut aligned_buffer = data;
+        let mut lock_token = None;
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            if data.as_ptr().align_offset(4) != 0 {
+                log::warn!("EndpointIn:{} data should be 32-bit aligned", index);
+                lock_token = Some(ALIGNED_BUFFER_MUTEX.lock());
+                ALIGNED_BUFFER[..data.len()].copy_from_slice(data);
+                aligned_buffer = &ALIGNED_BUFFER[..data.len()];
+            }
+            critical_section::with(|_| {
+                EP_IN_CONTROLLER[index].as_mut().unwrap().state = EndpointState::Tx;
+            });
+            // We are reading values that won't be changed, so we can do this without a lock
+            let e = EP_IN_CONTROLLER[index].as_mut().unwrap();
+            pac::MSS_USB_CIF_ep_write_pkt(
+                e.ep.num,
+                aligned_buffer.as_ptr() as *mut u8,
+                e.ep.dma_enable,
+                e.ep.dma_channel,
+                e.ep.xfr_type,
+                aligned_buffer.len() as u32,
+                aligned_buffer.len() as u32,
+            );
+        }
+
+        if let Some(lock_token) = lock_token {
+            ALIGNED_BUFFER_MUTEX.release(lock_token);
+        }
+
         poll_fn(move |cx| {
             critical_section::with(|_| unsafe {
-                EP_IN_WAKERS[self.info.addr.index()] = Some(cx.waker().clone());
-                // TODO
-                Poll::Pending::<()>
+                if EP_IN_CONTROLLER[index].as_mut().unwrap().state == EndpointState::TxComplete {
+                    EP_IN_CONTROLLER[index].as_mut().unwrap().state = EndpointState::Idle;
+                    Poll::Ready(())
+                } else {
+                    EP_IN_CONTROLLER[index].as_mut().unwrap().waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
             })
         })
         .await;
@@ -362,10 +445,10 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             critical_section::with(|_| unsafe {
-                if EP_IN_CONTROL[index].stall != 66 {
+                if EP_IN_CONTROLLER[index].as_ref().unwrap().state != EndpointState::Disabled {
                     Poll::Ready(())
                 } else {
-                    EP_IN_WAKERS[index] = Some(cx.waker().clone());
+                    EP_IN_CONTROLLER[index].as_mut().unwrap().waker = Some(cx.waker().clone());
                     Poll::Pending
                 }
             })
@@ -407,7 +490,7 @@ fn endpoint_to_dma_channel(endpoint: usize, direction: Direction) -> pac::mss_us
     }
 }
 
-fn configure_endpoint_control(
+fn configure_endpoint_controller(
     direction: Direction,
     endpoint: usize,
     endpoint_type: EndpointType,
@@ -438,7 +521,9 @@ fn configure_endpoint_control(
     }
 
     let dma_channel = endpoint_to_dma_channel(endpoint, direction);
-    let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
+    // let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
+    let dma_enable = false; // TODO enable DMA
+
     // Configure double packet buffering if there's enough FIFO space reserved
     let dpb_enable = max_packet_size * 2 <= fifo_size;
 
@@ -451,16 +536,23 @@ fn configure_endpoint_control(
         dma_enable: dma_enable as u8,
         dpb_enable: dpb_enable as u8,
         dma_channel,
-        stall: 66, // Indicates that the endpoint is not ready
         ..default_ep()
     };
 
     unsafe {
         // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
         if direction == Direction::Out {
-            EP_OUT_CONTROL[endpoint] = ep;
+            EP_OUT_CONTROLLER[endpoint] = Some(EndpointController {
+                ep: ep,
+                waker: None,
+                state: EndpointState::Disabled,
+            });
         } else {
-            EP_IN_CONTROL[endpoint] = ep;
+            EP_IN_CONTROLLER[endpoint] = Some(EndpointController {
+                ep: ep,
+                waker: None,
+                state: EndpointState::Disabled,
+            });
         }
     }
 }
@@ -468,11 +560,13 @@ fn configure_endpoint_control(
 fn configure_endpoint(direction: Direction, endpoint: usize) {
     critical_section::with(|_| unsafe {
         if direction == Direction::Out {
-            pac::MSS_USBD_CIF_rx_ep_configure(&mut EP_OUT_CONTROL[endpoint]);
-            EP_OUT_CONTROL[endpoint].stall = 66;
+            if let Some(ep) = EP_OUT_CONTROLLER[endpoint].as_mut() {
+                pac::MSS_USBD_CIF_rx_ep_configure(&mut ep.ep);
+            }
         } else {
-            pac::MSS_USBD_CIF_tx_ep_configure(&mut EP_IN_CONTROL[endpoint]);
-            EP_OUT_CONTROL[endpoint].stall = 66;
+            if let Some(ep) = EP_IN_CONTROLLER[endpoint].as_mut() {
+                pac::MSS_USBD_CIF_tx_ep_configure(&mut ep.ep);
+            }
         }
     });
 }
@@ -488,21 +582,6 @@ fn transfer_type(endpoint_type: EndpointType) -> pac::mss_usb_xfr_type_t {
 
 //------------------------------------------------------
 // ControlPipe
-
-struct ControlEvent {
-    setup: bool,
-    data_out: bool,
-    data_in: bool,
-    status: bool,
-}
-
-static mut CONTROL_EVENTS: ControlEvent = ControlEvent {
-    setup: false,
-    data_out: false,
-    data_in: false,
-    status: false,
-};
-
 pub struct ControlPipe<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     max_packet_size: usize,
@@ -518,11 +597,11 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
         loop {
             poll_fn(move |cx| {
                 critical_section::with(|_| unsafe {
-                    if CONTROL_EVENTS.setup && pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0 {
-                        CONTROL_EVENTS.setup = false;
+                    if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Setup {
+                        EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
                         Poll::Ready(())
                     } else {
-                        EP_OUT_WAKERS[0] = Some(cx.waker().clone());
+                        EP_OUT_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
                         Poll::Pending
                     }
                 })
@@ -530,28 +609,50 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             .await;
 
             let mut setup_packet = [0; 8];
-            read_control_packet(&mut setup_packet, self.max_packet_size);
+            read_control_packet(&mut setup_packet);
             // For some reason, sometimes the packet wasn't actually ready.
             // If we loop here and wait for the next interrupt, we seem to get the right packet.
             if setup_packet != [0; 8] {
                 log::trace!("USB ControlPipe::setup packet: {:x?}", setup_packet);
                 return setup_packet;
+            } else {
+                log::warn!("Got empty setup packet");
             }
         }
     }
 
     // Host -> Device
-    // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`
-    // TODO: Is there actually a point where we can do this?
+    // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`, but this will never be able to happen
     async fn data_out(
         &mut self,
         buf: &mut [u8],
-        first: bool,
-        last: bool,
+        _first: bool,
+        _last: bool,
     ) -> Result<usize, EndpointError> {
-        todo!("data_out not implemented")
-
         // It does not seem like we need to do anything special when last is true
+
+        critical_section::with(|_| unsafe {
+            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Rx;
+        });
+        read_control_packet(buf);
+
+        poll_fn(move |cx| {
+            critical_section::with(|_| unsafe {
+                if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::RxComplete {
+                    EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    Poll::Ready(())
+                } else {
+                    EP_OUT_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
+        // MSS_USB_CIF_cep_rx_byte_count
+        let len =
+            unsafe { (*pac::USB).INDEXED_CSR.DEVICE_EP0.COUNT0 & pac::COUNT0_REG_MASK as u16 };
+
+        Ok(len as usize)
     }
 
     // Device -> Host
@@ -570,24 +671,37 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
         #[allow(static_mut_refs)]
         unsafe {
             if data.as_ptr().align_offset(4) != 0 {
-                log::warn!("Endpoint data should be 32-bit aligned");
+                log::warn!("Control endpoint data should be 32-bit aligned");
                 lock_token = Some(ALIGNED_BUFFER_MUTEX.lock());
                 ALIGNED_BUFFER[..data.len()].copy_from_slice(data);
                 aligned_buffer = &ALIGNED_BUFFER[..data.len()];
             }
-            let mut ep = default_ep();
-            ep.num = 0;
-            ep.buf_addr = aligned_buffer.as_ptr() as *mut u8;
-            ep.txn_length = aligned_buffer.len() as u32;
-            ep.max_pkt_size = self.max_packet_size as u16;
+            let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
+            ep.ep.buf_addr = aligned_buffer.as_ptr() as *mut u8;
+            ep.ep.txn_length = aligned_buffer.len() as u32;
             // When last is true, we send a zero length packet after the transfer
             // This means that xfr_count == xfr_length
             // Otherwise, xfr_count < xfr_length
             // The specifics of these numbers are otherwise not important
-            ep.xfr_count = 0;
-            ep.xfr_length = if last { 0 } else { 1 };
-            pac::MSS_USBD_CIF_cep_write_pkt(&mut ep);
+            ep.ep.xfr_count = 0;
+            ep.ep.xfr_length = if last { 0 } else { 1 };
+            ep.state = EndpointState::Tx;
+            pac::MSS_USBD_CIF_cep_write_pkt(&mut ep.ep);
         }
+        poll_fn(move |cx| {
+            critical_section::with(|_| unsafe {
+                if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::TxComplete {
+                    EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    Poll::Ready(Ok(()))
+                } else if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Setup {
+                    Poll::Ready(Err(EndpointError::Disabled))
+                } else {
+                    EP_IN_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+        })
+        .await?;
 
         if let Some(lock_token) = lock_token {
             ALIGNED_BUFFER_MUTEX.release(lock_token);
@@ -623,20 +737,13 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
     }
 }
 
-fn read_control_packet(buf: &mut [u8], max_pkt_size: usize) {
+fn read_control_packet(buf: &mut [u8]) {
     unsafe {
-        let mut ep = pac::mss_usb_ep_t {
-            num: 0,
-            buf_addr: buf.as_mut_ptr() as *mut u8,
-            txn_length: buf.len() as u32,
-            xfr_length: buf.len() as u32,
-            max_pkt_size: max_pkt_size as u16,
-            xfr_type: pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
-            state: pac::mss_usb_ep_state_t_MSS_USB_CEP_RX,
-
-            ..default_ep()
-        };
-        pac::MSS_USBD_CIF_cep_read_pkt(&mut ep);
+        let ep = EP_OUT_CONTROLLER[0].as_mut().unwrap();
+        ep.ep.buf_addr = buf.as_mut_ptr() as *mut u8;
+        ep.ep.txn_length = buf.len() as u32;
+        ep.ep.xfr_length = buf.len() as u32;
+        pac::MSS_USBD_CIF_cep_read_pkt(&mut ep.ep);
     }
 }
 
@@ -741,7 +848,29 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
         log::debug!("USB poll: {:?}", ret);
         if ret == Event::Reset {
             unsafe {
+                // This _is_ required when resetting
                 pac::MSS_USBD_CIF_cep_configure();
+                critical_section::with(|_| {
+                    EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    for ep in 1..=NUM_ENDPOINTS {
+                        if let Some(ep) = EP_IN_CONTROLLER[ep].as_mut() {
+                            ep.state = EndpointState::Disabled;
+                        }
+                    }
+                    for ep in 1..=NUM_ENDPOINTS {
+                        if let Some(ep) = EP_OUT_CONTROLLER[ep].as_mut() {
+                            ep.state = EndpointState::Disabled;
+                        }
+                    }
+                });
+                // Yet this doesn't seem to be needed
+                // for ep in 1..=NUM_ENDPOINTS {
+                //     configure_endpoint(Direction::In, ep);
+                // }
+                // for ep in 1..=NUM_ENDPOINTS {
+                //     configure_endpoint(Direction::Out, ep);
+                // }
             }
         }
         ret
@@ -754,11 +883,16 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
             ep_addr.index(),
             enabled
         );
+        let state = if enabled {
+            EndpointState::Idle
+        } else {
+            EndpointState::Disabled
+        };
         critical_section::with(|_| unsafe {
             if ep_addr.direction() == Direction::Out {
-                EP_OUT_CONTROL[ep_addr.index()].stall = if enabled { 0 } else { 66 };
+                EP_OUT_CONTROLLER[ep_addr.index()].as_mut().unwrap().state = state;
             } else {
-                EP_IN_CONTROL[ep_addr.index()].stall = if enabled { 0 } else { 66 };
+                EP_IN_CONTROLLER[ep_addr.index()].as_mut().unwrap().state = state;
             }
         });
     }
@@ -775,7 +909,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
     async fn disable(&mut self) {}
 
     async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver::Unsupported> {
-        // TODO: Does the MPFS support this? The platform code seems to hint at its existence,
+        // Maybe TODO: Does the MPFS support this? The platform code seems to hint at its existence,
         // yet I don't see any way to actually create a remote wakeup signal.
         Err(embassy_usb_driver::Unsupported)
     }
@@ -807,12 +941,31 @@ extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
 }
 
 extern "C" fn usbd_ep_tx_complete(num: pac::mss_usb_ep_num_t, status: u8) {
-    // TODO: Implement endpoint transmit complete callback
-    log::trace!("usbd_ep_tx_complete: {:?}, {:?}", num, status);
+    log::trace!("usbd_ep_tx_complete {:?}: {:?}", num, status);
+    if status == 0 {
+        critical_section::with(|_| unsafe {
+            EP_IN_CONTROLLER[num as usize].as_mut().unwrap().state = EndpointState::TxComplete;
+            if let Some(waker) = EP_IN_CONTROLLER[num as usize]
+                .as_mut()
+                .unwrap()
+                .waker
+                .as_mut()
+            {
+                waker.wake_by_ref();
+            }
+        });
+    }
 }
 
 extern "C" fn usbd_cep_setup(status: u8) {
-    log::trace!("usbd_cep_setup: {:?}", status);
+    unsafe {
+        log::trace!(
+            "usbd_cep_setup: {:?} {:?} {:?}",
+            status,
+            EP_OUT_CONTROLLER[0].as_mut().unwrap().state,
+            EP_IN_CONTROLLER[0].as_mut().unwrap().state
+        );
+    }
     // This is called in three cases:
     // 1. When the control endpoint is stalled
     // 2. When the control endpoint recieves a setup packet before the setup has completed
@@ -821,30 +974,39 @@ extern "C" fn usbd_cep_setup(status: u8) {
     // The CIF clears the PHY of the stall in the first case already, so there's nothing left to do
     // The other two we can handle the same (I think?)
     critical_section::with(|_| unsafe {
-        CONTROL_EVENTS.setup = true;
+        let read_ready = pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0;
+        if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Rx && read_ready {
+            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::RxComplete;
+        } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Tx {
+            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxComplete;
+        } else if read_ready {
+            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
+        }
+
         #[allow(static_mut_refs)]
-        if let Some(waker) = EP_OUT_WAKERS[0].as_mut() {
+        if let Some(waker) = EP_OUT_CONTROLLER[0].as_mut().unwrap().waker.as_mut() {
             waker.wake_by_ref();
         }
-        if let Some(waker) = EP_IN_WAKERS[0].as_mut() {
+        if let Some(waker) = EP_IN_CONTROLLER[0].as_mut().unwrap().waker.as_mut() {
             waker.wake_by_ref();
         }
     });
 }
 
-extern "C" fn usbd_cep_rx(status: u8) {
-    // TODO: Implement control endpoint receive callback
-    log::trace!("usbd_cep_rx: {:?}", status);
+extern "C" fn usbd_cep_rx(_status: u8) {
+    // This will never be called, since we don't use the CIF's cep_state, which is what dictates
+    // whether setup, rx, or tx_complete is called
+    // Instead we look at the state of the endpoint controller directly in cep_setup
 }
 
-extern "C" fn usbd_cep_tx_complete(status: u8) {
-    // TODO: Implement control endpoint transmit complete callback
-    log::trace!("usbd_cep_tx_complete: {:?}", status);
+extern "C" fn usbd_cep_tx_complete(_status: u8) {
+    // This will never be called, since we don't use the CIF's cep_state, which is what dictates
+    // whether setup, rx, or tx_complete is called
+    // Instead we look at the state of the endpoint controller directly in cep_setup
 }
 
-extern "C" fn usbd_sof(status: u8) {
-    // TODO: Implement start of frame callback
-    log::trace!("usbd_sof: {:?}", status);
+extern "C" fn usbd_sof(_status: u8) {
+    // This is not called
 }
 
 extern "C" fn usbd_reset() {
