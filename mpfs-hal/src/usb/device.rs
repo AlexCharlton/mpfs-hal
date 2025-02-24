@@ -205,8 +205,8 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             }
             self.out_endpoints_allocated[i] = EndpointDetails {
                 used: true,
-                fifo_addr: fifo_addr,
-                fifo_size: fifo_size,
+                fifo_addr,
+                fifo_size,
             };
             configure_endpoint_controller(
                 Direction::Out,
@@ -428,6 +428,7 @@ impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
             })
         })
         .await;
+        log::trace!("USB EndpointIn::write {} OK", index);
         Ok(())
     }
 }
@@ -482,10 +483,10 @@ const IN_ENDPOINTS_START_ADDR: u16 = 0x8000;
 
 fn endpoint_to_dma_channel(endpoint: usize, direction: Direction) -> pac::mss_usb_dma_channel_t {
     match (endpoint, direction) {
-        (1, Direction::Out) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL1,
-        (2, Direction::Out) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL2,
-        (1, Direction::In) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL3,
-        (2, Direction::In) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL4,
+        (1, Direction::In) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL1,
+        (2, Direction::In) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL2,
+        (1, Direction::Out) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL3,
+        (2, Direction::Out) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL4,
         _ => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA,
     }
 }
@@ -521,8 +522,7 @@ fn configure_endpoint_controller(
     }
 
     let dma_channel = endpoint_to_dma_channel(endpoint, direction);
-    // let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
-    let dma_enable = false; // TODO enable DMA
+    let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
 
     // Configure double packet buffering if there's enough FIFO space reserved
     let dpb_enable = max_packet_size * 2 <= fifo_size;
@@ -562,10 +562,12 @@ fn configure_endpoint(direction: Direction, endpoint: usize) {
         if direction == Direction::Out {
             if let Some(ep) = EP_OUT_CONTROLLER[endpoint].as_mut() {
                 pac::MSS_USBD_CIF_rx_ep_configure(&mut ep.ep);
+                ep.state = EndpointState::Disabled;
             }
         } else {
             if let Some(ep) = EP_IN_CONTROLLER[endpoint].as_mut() {
                 pac::MSS_USBD_CIF_tx_ep_configure(&mut ep.ep);
+                ep.state = EndpointState::Disabled;
             }
         }
     });
@@ -576,7 +578,7 @@ fn transfer_type(endpoint_type: EndpointType) -> pac::mss_usb_xfr_type_t {
         EndpointType::Bulk => pac::mss_usb_xfr_type_t_MSS_USB_XFR_BULK,
         EndpointType::Interrupt => pac::mss_usb_xfr_type_t_MSS_USB_XFR_INTERRUPT,
         EndpointType::Isochronous => pac::mss_usb_xfr_type_t_MSS_USB_XFR_ISO,
-        EndpointType::Control => pac::mss_usb_xfr_type_t_MSS_USB_XFR_BULK,
+        EndpointType::Control => pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
     }
 }
 
@@ -719,7 +721,11 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
     }
 
     async fn reject(&mut self) {
-        todo!("reject not implemented")
+        unsafe {
+            (*pac::USB).INDEXED_CSR.DEVICE_EP0.CSR0 =
+                (pac::CSR0L_DEV_SEND_STALL_MASK | pac::CSR0L_DEV_SERVICED_RX_PKT_RDY_MASK) as u16;
+        }
+        log::trace!("USB ControlPipe::reject");
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
@@ -848,29 +854,17 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
         log::debug!("USB poll: {:?}", ret);
         if ret == Event::Reset {
             unsafe {
-                // This _is_ required when resetting
                 pac::MSS_USBD_CIF_cep_configure();
                 critical_section::with(|_| {
                     EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
                     EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
-                    for ep in 1..=NUM_ENDPOINTS {
-                        if let Some(ep) = EP_IN_CONTROLLER[ep].as_mut() {
-                            ep.state = EndpointState::Disabled;
-                        }
-                    }
-                    for ep in 1..=NUM_ENDPOINTS {
-                        if let Some(ep) = EP_OUT_CONTROLLER[ep].as_mut() {
-                            ep.state = EndpointState::Disabled;
-                        }
-                    }
                 });
-                // Yet this doesn't seem to be needed
-                // for ep in 1..=NUM_ENDPOINTS {
-                //     configure_endpoint(Direction::In, ep);
-                // }
-                // for ep in 1..=NUM_ENDPOINTS {
-                //     configure_endpoint(Direction::Out, ep);
-                // }
+                for ep in 1..=NUM_ENDPOINTS {
+                    configure_endpoint(Direction::In, ep);
+                }
+                for ep in 1..=NUM_ENDPOINTS {
+                    configure_endpoint(Direction::In, ep);
+                }
             }
         }
         ret
@@ -898,11 +892,48 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        todo!("endpoint_set_stalled not implemented")
+        log::trace!(
+            "USB Bus::endpoint_set_stalled: {:?}, {:?}",
+            ep_addr,
+            stalled
+        );
+        unsafe {
+            if ep_addr.direction() == Direction::Out {
+                let reg = &mut (*pac::USB).ENDPOINT[ep_addr.index()].RX_CSR;
+                if stalled {
+                    *reg |= (pac::RxCSRL_REG_EPN_SEND_STALL_MASK
+                        | pac::RxCSRL_REG_EPN_RX_PKT_RDY_MASK) as u16;
+                } else {
+                    let mut reg_val = *reg;
+                    reg_val &= !(pac::RxCSRL_REG_EPN_SEND_STALL_MASK as u16);
+                    reg_val |= pac::RxCSRL_REG_EPN_RX_PKT_RDY_MASK as u16;
+                    *reg = reg_val;
+                }
+            } else {
+                let reg = &mut (*pac::USB).ENDPOINT[ep_addr.index()].TX_CSR;
+                if stalled {
+                    *reg |= pac::TxCSRL_REG_EPN_SEND_STALL_MASK as u16;
+                } else {
+                    *reg &= !(pac::TxCSRL_REG_EPN_SEND_STALL_MASK as u16);
+                }
+            }
+        }
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        todo!("endpoint_is_stalled not implemented")
+        let val = unsafe {
+            if ep_addr.direction() == Direction::Out {
+                (*pac::USB).ENDPOINT[ep_addr.index()].RX_CSR
+                    & pac::RxCSRL_REG_EPN_STALL_SENT_MASK as u16
+                    != 0
+            } else {
+                (*pac::USB).ENDPOINT[ep_addr.index()].TX_CSR
+                    & pac::TxCSRL_REG_EPN_STALL_SENT_MASK as u16
+                    != 0
+            }
+        };
+        log::trace!("USB Bus::endpoint_is_stalled: {:?}, {:?}", ep_addr, val);
+        val
     }
 
     async fn enable(&mut self) {}
@@ -934,29 +965,6 @@ pub static g_mss_usbd_cb: pac::mss_usbd_cb_t = pac::mss_usbd_cb_t {
     usbd_disconnect: Some(usbd_disconnect),
     usbd_dma_handler: Some(usbd_dma_handler),
 };
-
-extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
-    // TODO: Implement endpoint receive callback
-    log::trace!("usbd_ep_rx: {:?}, {:?}", num, status);
-}
-
-extern "C" fn usbd_ep_tx_complete(num: pac::mss_usb_ep_num_t, status: u8) {
-    log::trace!("usbd_ep_tx_complete {:?}: {:?}", num, status);
-    if status == 0 {
-        critical_section::with(|_| unsafe {
-            EP_IN_CONTROLLER[num as usize].as_mut().unwrap().state = EndpointState::TxComplete;
-            if let Some(waker) = EP_IN_CONTROLLER[num as usize]
-                .as_mut()
-                .unwrap()
-                .waker
-                .as_mut()
-            {
-                waker.wake_by_ref();
-            }
-        });
-    }
-}
-
 extern "C" fn usbd_cep_setup(status: u8) {
     unsafe {
         log::trace!(
@@ -991,6 +999,92 @@ extern "C" fn usbd_cep_setup(status: u8) {
             waker.wake_by_ref();
         }
     });
+}
+
+extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
+    // TODO: Implement endpoint receive callback
+    log::trace!("usbd_ep_rx: {:?}, {:?}", num, status);
+}
+
+fn tx_complete(ep_num: usize) {
+    critical_section::with(|_| unsafe {
+        EP_IN_CONTROLLER[ep_num].as_mut().unwrap().state = EndpointState::TxComplete;
+        if let Some(waker) = EP_IN_CONTROLLER[ep_num].as_mut().unwrap().waker.as_mut() {
+            waker.wake_by_ref();
+        }
+    });
+}
+
+extern "C" fn usbd_ep_tx_complete(num: pac::mss_usb_ep_num_t, status: u8) {
+    log::trace!("usbd_ep_tx_complete {:?}: {:?}", num, status);
+    // unsafe {
+    //     let dma_channel = EP_IN_CONTROLLER[num as usize]
+    //         .as_mut()
+    //         .unwrap()
+    //         .ep
+    //         .dma_channel;
+    //     if dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA {
+    //         log::trace!(
+    //             "DMA Tx {} complete on channel {:?}: {:?}",
+    //             num,
+    //             dma_channel,
+    //             &(*pac::USB).DMA_CHANNEL[dma_channel as usize]
+    //         );
+    //     }
+    // }
+    tx_complete(num as usize);
+}
+
+extern "C" fn usbd_dma_handler(
+    ep_num: pac::mss_usb_ep_num_t,
+    dma_dir: pac::mss_usb_dma_dir_t,
+    status: u8,
+    dma_addr_val: u32,
+) {
+    log::trace!(
+        "usbd_dma_handler {:?}: {:?}, {:?}, 0x{:x?}",
+        ep_num,
+        dma_dir,
+        status,
+        dma_addr_val
+    );
+    if status == pac::DMA_XFR_ERROR as u8 {
+        log::error!("DMA transfer error");
+    } else {
+        if dma_dir == pac::mss_usb_dma_dir_t_MSS_USB_DMA_READ {
+            // Tx
+            unsafe {
+                // TODO: This probably needs more conditions added to it
+                // See mss_usb_device.c:mss_usbd_dma_handler_cb
+                if (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR
+                    & pac::TxCSRH_REG_EPN_DMA_MODE_MASK as u16
+                    == 0
+                {
+                    log::trace!("DMA mode 0");
+                    // This triggers a TX complete interrupt
+                    // MSS_USB_CIF_tx_ep_set_txpktrdy
+                    (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR |=
+                        pac::TxCSRL_REG_EPN_TX_PKT_RDY_MASK as u16;
+                } else {
+                    log::trace!("DMA mode 1 (bulk transfer)");
+                    loop {
+                        // Wait until the packet is ready
+                        // MSS_USB_CIF_tx_ep_is_txpktrdy
+                        if (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR
+                            & pac::TxCSRL_REG_EPN_TX_PKT_RDY_MASK as u16
+                            == 0
+                        {
+                            break;
+                        }
+                    }
+                    tx_complete(ep_num as usize);
+                }
+            }
+        } else {
+            // Rx
+            // TODO: Implement DMA write callback
+        }
+    }
 }
 
 extern "C" fn usbd_cep_rx(_status: u8) {
@@ -1051,20 +1145,4 @@ extern "C" fn usbd_disconnect() {
             waker.wake_by_ref();
         }
     });
-}
-
-extern "C" fn usbd_dma_handler(
-    ep_num: pac::mss_usb_ep_num_t,
-    dma_dir: pac::mss_usb_dma_dir_t,
-    status: u8,
-    dma_addr_val: u32,
-) {
-    // TODO: Implement DMA handler callback
-    log::trace!(
-        "usbd_dma_handler: {:?}, {:?}, {:?}, {:?}",
-        ep_num,
-        dma_dir,
-        status,
-        dma_addr_val
-    );
 }
