@@ -82,10 +82,10 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
     };
 
+    println!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, hid_fut).await;
-    println!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
 }
 struct MyRequestHandler {}
 
