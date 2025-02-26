@@ -35,6 +35,8 @@ enum EndpointState {
     Idle,
     Rx,
     Tx,
+    TxLast,
+    TxReadyForNext,
     Setup,
     RxComplete,
     TxComplete,
@@ -682,20 +684,34 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             ep.ep.buf_addr = aligned_buffer.as_ptr() as *mut u8;
             ep.ep.txn_length = aligned_buffer.len() as u32;
             // When last is true, we send a zero length packet after the transfer
-            // This means that xfr_count == xfr_length
-            // Otherwise, xfr_count < xfr_length
+            // This means that xfr_count + txn_length >= xfr_length
+            // Otherwise, xfr_count + txn_length < xfr_length
             // The specifics of these numbers are otherwise not important
             ep.ep.xfr_count = 0;
-            ep.ep.xfr_length = if last { 0 } else { 1 };
-            ep.state = EndpointState::Tx;
+            ep.ep.xfr_length = if last {
+                0
+            } else {
+                1 + aligned_buffer.len() as u32
+            };
+            ep.state = if last {
+                EndpointState::TxLast
+            } else {
+                EndpointState::Tx
+            };
             pac::MSS_USBD_CIF_cep_write_pkt(&mut ep.ep);
         }
         poll_fn(move |cx| {
             critical_section::with(|_| unsafe {
-                if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::TxComplete {
-                    EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                let state = &mut EP_IN_CONTROLLER[0].as_mut().unwrap().state;
+                if *state == EndpointState::TxComplete {
+                    *state = EndpointState::Idle;
                     Poll::Ready(Ok(()))
-                } else if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Setup {
+                } else if *state == EndpointState::TxReadyForNext {
+                    Poll::Ready(Ok(()))
+                } else if *state == EndpointState::Setup {
+                    log::warn!(
+                        "Control endpoint setup packet received while waiting for tx complete"
+                    );
                     Poll::Ready(Err(EndpointError::Disabled))
                 } else {
                     EP_IN_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
@@ -986,6 +1002,8 @@ extern "C" fn usbd_cep_setup(status: u8) {
         if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Rx && read_ready {
             EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::RxComplete;
         } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Tx {
+            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxReadyForNext;
+        } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::TxLast {
             EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxComplete;
         } else if read_ready {
             EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
