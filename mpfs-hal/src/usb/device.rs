@@ -380,13 +380,21 @@ impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
         let index = self.info.addr.index();
         log::trace!("USB EndpointOut::read {}", index);
         self.wait_enabled().await;
+        let mut aligned_buffer = data.as_ptr();
 
-        // TODO aligned buffer
+        unsafe {
+            if aligned_buffer.align_offset(4) != 0 {
+                let e = EP_OUT_CONTROLLER[index].as_mut().unwrap();
+                log::warn!("EndpointIn:{} data should be 32-bit aligned", index);
+                aligned_buffer = e.buffer_addr()[..data.len()].as_ptr();
+            }
+        }
+
         unsafe {
             let e = EP_OUT_CONTROLLER[index].as_mut().unwrap();
             critical_section::with(|_| {
                 e.state = EndpointState::Rx;
-                e.ep.buf_addr = data.as_ptr() as *mut u8;
+                e.ep.buf_addr = aligned_buffer as *mut u8;
                 e.ep.xfr_length = data.len() as u32;
             });
             pac::MSS_USBD_CIF_rx_ep_read_prepare(&mut e.ep);
@@ -405,6 +413,13 @@ impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
             })
         })
         .await;
+
+        if data.as_ptr() != aligned_buffer {
+            unsafe {
+                let e = EP_OUT_CONTROLLER[index].as_mut().unwrap();
+                data.copy_from_slice(&e.buffer_addr()[..data.len()]);
+            }
+        }
 
         Ok(read_size)
     }

@@ -5,7 +5,7 @@
 
 use aligned::{Aligned, A4};
 use embassy_futures::join::join;
-use embassy_usb::class::midi::{MidiClass, Receiver};
+use embassy_usb::class::midi::MidiClass;
 use embassy_usb::driver::EndpointError;
 
 use mpfs_hal::usb::device::UsbDriver;
@@ -44,21 +44,18 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     );
 
     // Create classes on the builder.
-    let class = MidiClass::new(&mut builder, 1, 1, 64);
-    let (_, mut receiver) = class.split();
-
+    let mut class = MidiClass::new(&mut builder, 1, 1, 64);
     // Build the builder.
     let mut usb = builder.build();
-
     // Run the USB device.
     let usb_fut = usb.run();
 
     // Use the Midi class!
     let midi_fut = async {
         loop {
-            receiver.wait_connection().await;
+            class.wait_connection().await;
             log::info!("Connected");
-            let _ = midi_display(&mut receiver).await;
+            let _ = midi_display(&mut class).await;
             log::info!("Disconnected");
         }
     };
@@ -82,11 +79,11 @@ impl From<EndpointError> for Disconnected {
 }
 
 async fn midi_display<'d, 'a>(
-    receiver: &'a mut Receiver<'d, UsbDriver<'d>>,
+    class: &'a mut MidiClass<'d, UsbDriver<'d>>,
 ) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
+    let mut buf = Aligned::<A4, _>([0; 64]);
     loop {
-        let n = receiver.read_packet(&mut buf).await?;
+        let n = class.read_packet(&mut buf[..]).await?;
         let data = &buf[..n];
         log::info!("data: {:x?}", data);
     }
