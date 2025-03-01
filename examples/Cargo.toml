@@ -16,6 +16,7 @@ embassy-usb = "0.4"
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 log = { workspace = true }
+midi-msg = { version = "0.8.0", default-features = false }
 static_cell = { workspace = true }
 usbd-hid = "0.8"
 

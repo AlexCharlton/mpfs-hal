@@ -7,6 +7,7 @@ use aligned::{Aligned, A4};
 use embassy_futures::join::join;
 use embassy_usb::class::midi::MidiClass;
 use embassy_usb::driver::EndpointError;
+use midi_msg::{ChannelVoiceMsg, MidiMsg};
 
 use mpfs_hal::usb::device::UsbDriver;
 use mpfs_hal::Peripheral;
@@ -50,12 +51,14 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
+    let mut leds = mpfs_hal::gpio::Leds::take().unwrap();
+
     // Use the Midi class!
     let midi_fut = async {
         loop {
             class.wait_connection().await;
             log::info!("Connected");
-            let _ = midi_display(&mut class).await;
+            let _ = midi_display(&mut class, &mut leds).await;
             log::info!("Disconnected");
         }
     };
@@ -80,18 +83,50 @@ impl From<EndpointError> for Disconnected {
 
 async fn midi_display<'d, 'a>(
     class: &'a mut MidiClass<'d, UsbDriver<'d>>,
+    leds: &'a mut mpfs_hal::gpio::Leds,
 ) -> Result<(), Disconnected> {
     let mut buf = Aligned::<A4, _>([0; 64]);
     loop {
         let n = class.read_packet(&mut buf[..]).await?;
         let data = &buf[..n];
         log::info!("data: {:x?}", data);
+        if data.len() > 0 {
+            // Note on or note off
+            if data[0] == 0x8 || data[0] == 0x9 {
+                let msg = MidiMsg::from_midi(&data[1..]);
+                log::info!("msg: {:?}", msg);
+                if let Ok((
+                    MidiMsg::ChannelVoice {
+                        channel: _,
+                        msg: ChannelVoiceMsg::NoteOn { note, .. },
+                    },
+                    _,
+                )) = msg
+                {
+                    let led_num = note % 12;
+                    leds.set_led(led_num as usize, true);
+                }
+                if let Ok((
+                    MidiMsg::ChannelVoice {
+                        channel: _,
+                        msg: ChannelVoiceMsg::NoteOff { note, .. },
+                    },
+                    _,
+                )) = msg
+                {
+                    let led_num = note % 12;
+                    leds.set_led(led_num as usize, false);
+                }
+            }
+        }
     }
 }
 
 #[mpfs_hal::init_once]
 fn config() {
-    mpfs_hal::init_logger(log::LevelFilter::Trace);
+    // We can expect to miss messages if we log at Info level
+    mpfs_hal::init_logger(log::LevelFilter::Warn);
+    mpfs_hal::gpio::init();
 }
 
 #[panic_handler]

@@ -494,6 +494,7 @@ mod beaglev_fire {
     | P8_10  | MSS GPIO_2[7]              |   53  | User LED 7  |
     | P8_11  | MSS GPIO_2[8]              |   53  | User LED 8  |
     | P8_12  | MSS GPIO_2[9]              |   53  | User LED 9  |
+    | P8_13  | MSS GPIO_2[10]             |   53  | User LED 10 |
     | P8_14  | MSS GPIO_2[11]             |   53  | User LED 11 |
     | P8_15  | MSS GPIO_2[12]             |   53  | GPIO        |
     | P8_16  | MSS GPIO_2[13]             |   53  | GPIO        |
@@ -606,6 +607,14 @@ mod beaglev_fire {
         9,
         PLIC_gpio0_bit9_or_gpio2_bit13_IRQHandler
     );
+    impl_gpio_pin!(
+        P8_13,
+        10,
+        GpioPeripheral::Mss(pac::GPIO2_LO),
+        10,
+        PLIC_gpio0_bit10_or_gpio2_bit13_IRQHandler
+    );
+
     impl_gpio_pin!(
         P8_14,
         11,
@@ -903,6 +912,115 @@ mod beaglev_fire {
         PLIC_f2m_43_IRQHandler,
         pac::PLIC_IRQn_Type_PLIC_F2M_43_INT_OFFSET
     );
+
+    //-------------------------------------------------------------
+    use embedded_hal::digital::{OutputPin, PinState};
+
+    pub struct Leds {
+        pub led0: Output,
+        pub led1: Output,
+        pub led2: Output,
+        pub led3: Output,
+        pub led4: Output,
+        pub led5: Output,
+        pub led6: Output,
+        pub led7: Output,
+        pub led8: Output,
+        pub led9: Output,
+        pub led10: Output,
+        pub led11: Output,
+    }
+
+    impl Leds {
+        pub fn set_led(&mut self, led_num: usize, on: bool) {
+            let pin_state = if on { PinState::High } else { PinState::Low };
+            match led_num {
+                0 => self.led0.set_state(pin_state),
+                1 => self.led1.set_state(pin_state),
+                2 => self.led2.set_state(pin_state),
+                3 => self.led3.set_state(pin_state),
+                4 => self.led4.set_state(pin_state),
+                5 => self.led5.set_state(pin_state),
+                6 => self.led6.set_state(pin_state),
+                7 => self.led7.set_state(pin_state),
+                8 => self.led8.set_state(pin_state),
+                9 => self.led9.set_state(pin_state),
+                10 => self.led10.set_state(pin_state),
+                11 => self.led11.set_state(pin_state),
+                _ => panic!("Invalid LED number: {}", led_num),
+            }
+            .unwrap();
+        }
+    }
+
+    impl crate::Peripheral for Leds {
+        fn take() -> Option<Self> {
+            let led0 = P8_3::take();
+            let led1 = P8_4::take();
+            let led2 = P8_5::take();
+            let led3 = P8_6::take();
+            let led4 = P8_7::take();
+            let led5 = P8_8::take();
+            let led6 = P8_9::take();
+            let led7 = P8_10::take();
+            let led8 = P8_11::take();
+            let led9 = P8_12::take();
+            let led10 = P8_13::take();
+            let led11 = P8_14::take();
+            if let (
+                Some(led0),
+                Some(led1),
+                Some(led2),
+                Some(led3),
+                Some(led4),
+                Some(led5),
+                Some(led6),
+                Some(led7),
+                Some(led8),
+                Some(led9),
+                Some(led10),
+                Some(led11),
+            ) = (
+                led0, led1, led2, led3, led4, led5, led6, led7, led8, led9, led10, led11,
+            ) {
+                Some(Self {
+                    led0: Output::new(led0),
+                    led1: Output::new(led1),
+                    led2: Output::new(led2),
+                    led3: Output::new(led3),
+                    led4: Output::new(led4),
+                    led5: Output::new(led5),
+                    led6: Output::new(led6),
+                    led7: Output::new(led7),
+                    led8: Output::new(led8),
+                    led9: Output::new(led9),
+                    led10: Output::new(led10),
+                    led11: Output::new(led11),
+                })
+            } else {
+                None
+            }
+        }
+
+        unsafe fn steal() -> Self {
+            Self {
+                led0: Output::new(P8_3::steal()),
+                led1: Output::new(P8_4::steal()),
+                led2: Output::new(P8_5::steal()),
+                led3: Output::new(P8_6::steal()),
+                led4: Output::new(P8_7::steal()),
+                led5: Output::new(P8_8::steal()),
+                led6: Output::new(P8_9::steal()),
+                led7: Output::new(P8_10::steal()),
+                led8: Output::new(P8_11::steal()),
+                led9: Output::new(P8_12::steal()),
+                led10: Output::new(P8_13::steal()),
+                led11: Output::new(P8_14::steal()),
+            }
+        }
+    }
+
+    //-------------------------------------------------------------
 
     // SD card detect interrupt handler
     #[doc(hidden)]
