@@ -387,6 +387,7 @@ impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
             critical_section::with(|_| {
                 e.state = EndpointState::Rx;
                 e.ep.buf_addr = data.as_ptr() as *mut u8;
+                e.ep.xfr_length = data.len() as u32;
             });
             pac::MSS_USBD_CIF_rx_ep_read_prepare(&mut e.ep);
         }
@@ -586,7 +587,6 @@ fn configure_endpoint_controller(
 
     let dma_channel = endpoint_to_dma_channel(endpoint, direction);
     let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
-    let dma_enable = false;
 
     // Configure double packet buffering if there's enough FIFO space reserved
     let dpb_enable = max_packet_size * 2 <= fifo_size;
@@ -1073,15 +1073,56 @@ extern "C" fn usbd_cep_setup(status: u8) {
     });
 }
 
+unsafe fn rx_complete(num: usize, received_count: u32) {
+    critical_section::with(|_| {
+        EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
+            EndpointState::RxComplete(received_count as usize);
+    });
+    if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
+        .as_mut()
+        .unwrap()
+        .waker
+        .as_mut()
+    {
+        waker.wake_by_ref();
+    }
+}
+
 extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
     unsafe {
         let received_count = (*pac::USB).ENDPOINT[num as usize].RX_COUNT as u32;
+        let ep = EP_OUT_CONTROLLER[num as usize].as_ref().unwrap();
         log::trace!(
             "usbd_ep_rx {:?}: {:?}; Received count {:?}",
             num,
             status,
             received_count
         );
+
+        // DMA
+        if ep.ep.dma_enable != 0 {
+            if ((*pac::USB).ENDPOINT[num as usize].RX_CSR
+                & pac::RxCSRL_REG_EPN_DMA_MODE_MASK as u16)
+                == 0
+            {
+                log::trace!("DMA mode 0");
+
+                // MSS_USB_CIF_dma_write_count
+                (*pac::USB).DMA_CHANNEL[ep.ep.dma_channel as usize].COUNT = received_count;
+                // MSS_USB_CIF_dma_start_xfr
+                (*pac::USB).DMA_CHANNEL[ep.ep.dma_channel as usize].CNTL |=
+                    pac::DMA_CNTL_REG_START_XFR_MASK;
+                return; // A DMA interrupt will be triggered
+            } else {
+                log::trace!("DMA mode 1");
+                // MSS_USB_CIF_dma_stop_xfr
+                (*pac::USB).DMA_CHANNEL[ep.ep.dma_channel as usize].CNTL &=
+                    !pac::DMA_CNTL_REG_START_XFR_MASK;
+                pac::MSS_USB_CIF_rx_ep_clr_autoclr(num);
+                // Rest is the same as for non-DMA mode
+            }
+        }
+
         if received_count > 0 {
             pac::MSS_USB_CIF_read_rx_fifo(
                 num,
@@ -1093,19 +1134,9 @@ extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
                 received_count,
             );
         }
+        // MSS_USB_CIF_rx_ep_clr_rxpktrdy
         (*pac::USB).ENDPOINT[num as usize].RX_CSR &= !(pac::RxCSRL_REG_EPN_RX_PKT_RDY_MASK as u16);
-        critical_section::with(|_| {
-            EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
-                EndpointState::RxComplete(received_count as usize);
-        });
-        if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
-            .as_mut()
-            .unwrap()
-            .waker
-            .as_mut()
-        {
-            waker.wake_by_ref();
-        }
+        rx_complete(num as usize, received_count);
     }
 }
 
@@ -1185,7 +1216,16 @@ extern "C" fn usbd_dma_handler(
             }
         } else {
             // Rx
-            // TODO: Implement DMA write callback
+            log::trace!("DMA Rx {:?}", ep_num);
+            unsafe {
+                let received_count = dma_addr_val
+                    - EP_OUT_CONTROLLER[ep_num as usize]
+                        .as_ref()
+                        .unwrap()
+                        .ep
+                        .buf_addr as u32;
+                rx_complete(ep_num as usize, received_count);
+            }
         }
     }
 }
