@@ -638,11 +638,13 @@ fn configure_endpoint(direction: Direction, endpoint: usize) {
     critical_section::with(|_| unsafe {
         if direction == Direction::Out {
             if let Some(ep) = EP_OUT_CONTROLLER[endpoint].as_mut() {
+                // log::debug!("Configuring OUT endpoint {:?}", ep);
                 pac::MSS_USBD_CIF_rx_ep_configure(&mut ep.ep);
                 ep.state = EndpointState::Disabled;
             }
         } else {
             if let Some(ep) = EP_IN_CONTROLLER[endpoint].as_mut() {
+                // log::debug!("Configuring IN endpoint {:?}", ep);
                 pac::MSS_USBD_CIF_tx_ep_configure(&mut ep.ep);
                 ep.state = EndpointState::Disabled;
             }
@@ -946,7 +948,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
                     configure_endpoint(Direction::In, ep);
                 }
                 for ep in 1..=NUM_ENDPOINTS {
-                    configure_endpoint(Direction::In, ep);
+                    configure_endpoint(Direction::Out, ep);
                 }
             }
         }
@@ -1203,35 +1205,14 @@ extern "C" fn usbd_dma_handler(
         if dma_dir == pac::mss_usb_dma_dir_t_MSS_USB_DMA_READ {
             // Tx
             unsafe {
-                // TODO: This probably needs more conditions added to it
-                // See mss_usb_device.c:mss_usbd_dma_handler_cb
-                if (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR
-                    & pac::TxCSRH_REG_EPN_DMA_MODE_MASK as u16
-                    == 0
-                {
-                    log::trace!("DMA mode 0");
-                    // This triggers a TX complete interrupt
-                    // MSS_USB_CIF_tx_ep_set_txpktrdy
-                    (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR |=
-                        pac::TxCSRL_REG_EPN_TX_PKT_RDY_MASK as u16;
-                } else {
-                    log::trace!("DMA mode 1 (bulk transfer)");
-                    loop {
-                        // Wait until the packet is ready
-                        // MSS_USB_CIF_tx_ep_is_txpktrdy
-                        if (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR
-                            & pac::TxCSRL_REG_EPN_TX_PKT_RDY_MASK as u16
-                            == 0
-                        {
-                            break;
-                        }
-                    }
-                    tx_complete(ep_num as usize);
-                }
+                // This triggers a TX complete interrupt
+                // MSS_USB_CIF_tx_ep_set_txpktrdy
+                (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR |=
+                    pac::TxCSRL_REG_EPN_TX_PKT_RDY_MASK as u16;
             }
         } else {
             // Rx
-            log::trace!("DMA Rx {:?}", ep_num);
+            log::trace!("DMA RX {:?}", ep_num);
             unsafe {
                 let received_count = dma_addr_val
                     - EP_OUT_CONTROLLER[ep_num as usize]

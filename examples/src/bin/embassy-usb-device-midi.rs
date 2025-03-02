@@ -118,6 +118,9 @@ async fn midi_display<'d, 'a>(
                     leds.set_led(led_num as usize, false);
                 }
             }
+
+            // Echo back the data
+            class.write_packet(data).await?;
         }
     }
 }
