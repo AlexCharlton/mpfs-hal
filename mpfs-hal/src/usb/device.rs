@@ -94,7 +94,7 @@ impl Default for EndpointState {
     }
 }
 
-// Endpoints are named relative to the host, so In is a device TX and Out is a device RX
+// Endpoints are named relative to the host, so In is a device Tx and Out is a device Rx
 // +1 for the control endpoint at index 0
 static mut EP_IN_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
     [const { None }; NUM_ENDPOINTS + 1];

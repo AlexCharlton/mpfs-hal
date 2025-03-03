@@ -34,6 +34,7 @@ embedded-alloc = { workspace = true, optional = true }
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embedded-io = { workspace = true }
+embedded-io-async = { workspace = true }
 log = { workspace = true, optional = true }
 paste = "1.0"
 riscv = "0.12"

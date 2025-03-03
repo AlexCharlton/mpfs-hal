@@ -57,6 +57,9 @@ fn init_once() {
 
         #[cfg(feature = "alloc")]
         init_heap();
+
+        uart::init_uart();
+
         #[cfg(feature = "print")]
         init_print();
 

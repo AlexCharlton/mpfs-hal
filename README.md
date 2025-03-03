@@ -14,7 +14,7 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 - [critical_section](https://github.com/rust-embedded/critical-section)
 - [alloc](https://doc.rust-lang.org/alloc/) support via [embedded-alloc](https://github.com/rust-embedded/embedded-alloc) (`alloc` feature)
 - Board-specific GPIO ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/digital/index.html)) with support for interrupts ([embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/digital/index.html))
-- UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/)) (Read TODO)
+- UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/))
 - UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html)) `SpiBus`
 - Ethernet (implementing the [embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver` trait)

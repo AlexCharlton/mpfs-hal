@@ -3,11 +3,12 @@ use core::panic::PanicInfo;
 
 use embedded_io::Write;
 
-static mut UART: Option<Uart<UART0>> = None;
+static mut UART: Option<UartTx<UartTx0>> = None;
 static MUTEX: Mutex = Mutex::new();
 
+// TODO: Should it be possible to configure the UART?
 pub(crate) fn init_print() {
-    unsafe { UART = Some(Uart::new(UART0::take().unwrap(), UartConfig::default())) }
+    unsafe { UART = Some(UartTx::new(UartTx0::take().unwrap(), UartConfig::default())) }
 }
 
 pub struct Printer;
@@ -79,7 +80,7 @@ impl core::fmt::Write for UnguardedPrinter {
             if UART.is_none() {
                 return Ok(());
             }
-            super::pac::MSS_UART_polled_tx(UART0::steal().address(), s.as_ptr(), s.len() as u32);
+            super::pac::MSS_UART_polled_tx(UartTx0::steal().address(), s.as_ptr(), s.len() as u32);
         }
         Ok(())
     }
