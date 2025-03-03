@@ -3,6 +3,7 @@
 #include "platform/drivers/mss/mss_mmc/mss_mmc.h"
 #include "platform/drivers/mss/mss_mmuart/mss_uart.h"
 #include "platform/drivers/mss/mss_timer/mss_timer.h"
+#include "platform/drivers/mss/mss_spi/mss_spi.h"
 #include "platform/drivers/mss/mss_qspi/mss_qspi.h"
 #include "platform/drivers/mss/mss_can/mss_can.h"
 #include "platform/drivers/mss/mss_i2c/mss_i2c.h"

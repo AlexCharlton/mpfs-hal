@@ -15,6 +15,6 @@ You should almost certainly use this with the [mpfs-hal](https://github.com/mpfs
 
 
 ## TODO
-There's lots of functionality in platform that isn't yet exposed, either because they are static functions, or defines that aren't recognized by bindgen. I also haven't added all headers to the wrapper, since I've been adding them as I need them.
+There's plenty of functionality in platform that isn't yet exposed, either because they are static functions, or defines that aren't recognized by bindgen. I also haven't added all headers to the wrapper, but most MSS peripherals are there.
 
-The docs for this crate are a broken, presumably due to some bindgen issue.
+The docs for this crate are a bit broken, presumably due to some bindgen issue.
