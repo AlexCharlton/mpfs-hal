@@ -1,5 +1,4 @@
 use crate::pac;
-use core::ptr::addr_of_mut;
 use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use paste::paste;
@@ -96,7 +95,7 @@ macro_rules! impl_uart {
 
         impl UartPeripheral for $UART {
             fn address(&self) -> *mut pac::mss_uart_instance_t {
-                addr_of_mut!(pac::$instance)
+                &raw mut pac::$instance
             }
 
             fn number(&self) -> u8 {
@@ -106,7 +105,7 @@ macro_rules! impl_uart {
 
         impl UartPeripheral for $UART_RX {
             fn address(&self) -> *mut pac::mss_uart_instance_t {
-                addr_of_mut!(pac::$instance)
+                &raw mut pac::$instance
             }
 
             fn number(&self) -> u8 {
@@ -118,7 +117,7 @@ macro_rules! impl_uart {
 
         impl UartPeripheral for $UART_TX {
             fn address(&self) -> *mut pac::mss_uart_instance_t {
-                addr_of_mut!(pac::$instance)
+                &raw mut pac::$instance
             }
 
             fn number(&self) -> u8 {
@@ -531,15 +530,15 @@ impl<T: UartPeripheral> embedded_io_async::Read for UartRx<T> {
 }
 
 fn uart_idx(uart: *mut pac::mss_uart_instance_t) -> usize {
-    if uart == addr_of_mut!(pac::g_mss_uart0_lo) {
+    if uart == &raw mut pac::g_mss_uart0_lo {
         0
-    } else if uart == addr_of_mut!(pac::g_mss_uart1_lo) {
+    } else if uart == &raw mut pac::g_mss_uart1_lo {
         1
-    } else if uart == addr_of_mut!(pac::g_mss_uart2_lo) {
+    } else if uart == &raw mut pac::g_mss_uart2_lo {
         2
-    } else if uart == addr_of_mut!(pac::g_mss_uart3_lo) {
+    } else if uart == &raw mut pac::g_mss_uart3_lo {
         3
-    } else if uart == addr_of_mut!(pac::g_mss_uart4_lo) {
+    } else if uart == &raw mut pac::g_mss_uart4_lo {
         4
     } else {
         panic!("Invalid UART instance")

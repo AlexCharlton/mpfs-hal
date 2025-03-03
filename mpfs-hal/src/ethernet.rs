@@ -66,7 +66,7 @@ macro_rules! impl_mac {
 
         impl MacPeripheral for $MAC {
             fn address(&self) -> *mut pac::mss_mac_instance {
-                core::ptr::addr_of_mut!(pac::$instance)
+                &raw mut pac::$instance
             }
 
             fn tx_buffer(&self) -> &'static mut Buffer {
