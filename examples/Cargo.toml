@@ -12,7 +12,7 @@ aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
-embassy-usb = "0.4"
+embassy-usb = { workspace = true, features = [] }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 log = { workspace = true }
@@ -21,7 +21,7 @@ static_cell = { workspace = true }
 usbd-hid = "0.8"
 
 # TCP example
-embassy-net = { version = "0.6", features = [
+embassy-net = { workspace = true, features = [
     "tcp",
     "udp",
     "raw",
@@ -48,6 +48,6 @@ sdspi = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-embedded-hal = { workspace = true }
-embassy-futures = "0.1"
+embassy-futures = { workspace = true }
 embassy-sync = { workspace = true }
 mbr-nostd = "0.1"

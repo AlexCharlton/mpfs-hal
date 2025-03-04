@@ -24,8 +24,8 @@ mpfs-hal-procmacros = { workspace = true, features = ["embassy"] }
 critical-section = { workspace = true }
 embassy-executor = { workspace = true, features = ["executor-thread"] }
 embassy-time = { workspace = true }
-embassy-time-driver = { version = "0.2", features = ["tick-hz-1_000_000"] }
-embassy-time-queue-utils = { version = "0.1" }
+embassy-time-driver = { workspace = true, features = ["tick-hz-1_000_000"] }
+embassy-time-queue-utils = { workspace = true }
 embassy-sync = { workspace = true }
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
