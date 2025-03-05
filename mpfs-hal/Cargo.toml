@@ -13,13 +13,14 @@ default-target = "riscv64gc-unknown-none-elf"
 features = []
 
 [features]
-default = ["alloc", "print", "log", "log-colors", "beaglev-fire"]
+default = ["alloc", "print", "log", "log-colors", "beaglev-fire", "usb-host"]
 debug-logs = ["print"]
 log = ["print", "dep:log"]
 log-colors = []
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
 beaglev-fire = ["mpfs-pac/beaglev-fire"]
+usb-host = ["alloc"]
 
 [dependencies]
 mpfs-pac = { workspace = true }

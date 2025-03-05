@@ -13,6 +13,7 @@ critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
 embassy-usb = { workspace = true, features = [] }
+embassy-usb-driver = { workspace = true }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 log = { workspace = true }
