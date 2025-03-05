@@ -1041,15 +1041,21 @@ pub static g_mss_usbd_cb: pac::mss_usbd_cb_t = pac::mss_usbd_cb_t {
     usbd_ep_rx: Some(usbd_ep_rx),
     usbd_ep_tx_complete: Some(usbd_ep_tx_complete),
     usbd_cep_setup: Some(usbd_cep_setup),
-    usbd_cep_rx: Some(usbd_cep_rx),
-    usbd_cep_tx_complete: Some(usbd_cep_tx_complete),
-    usbd_sof: Some(usbd_sof),
     usbd_reset: Some(usbd_reset),
     usbd_suspend: Some(usbd_suspend),
     usbd_resume: Some(usbd_resume),
     usbd_disconnect: Some(usbd_disconnect),
     usbd_dma_handler: Some(usbd_dma_handler),
+
+    // This is never called
+    usbd_sof: None,
+    // These will never be called, since we don't use the CIF's cep_state, which is what dictates
+    // whether setup, rx, or tx_complete is called
+    // Instead we look at the state of the endpoint controller directly in cep_setup
+    usbd_cep_rx: None,
+    usbd_cep_tx_complete: None,
 };
+
 extern "C" fn usbd_cep_setup(status: u8) {
     unsafe {
         log::trace!(
@@ -1224,22 +1230,6 @@ extern "C" fn usbd_dma_handler(
             }
         }
     }
-}
-
-extern "C" fn usbd_cep_rx(_status: u8) {
-    // This will never be called, since we don't use the CIF's cep_state, which is what dictates
-    // whether setup, rx, or tx_complete is called
-    // Instead we look at the state of the endpoint controller directly in cep_setup
-}
-
-extern "C" fn usbd_cep_tx_complete(_status: u8) {
-    // This will never be called, since we don't use the CIF's cep_state, which is what dictates
-    // whether setup, rx, or tx_complete is called
-    // Instead we look at the state of the endpoint controller directly in cep_setup
-}
-
-extern "C" fn usbd_sof(_status: u8) {
-    // This is not called
 }
 
 extern "C" fn usbd_reset() {
