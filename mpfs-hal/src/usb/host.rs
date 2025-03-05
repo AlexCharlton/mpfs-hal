@@ -70,7 +70,8 @@ impl UsbHostDriver for UsbHost {
     type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D>;
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
-        todo!()
+        log::trace!("wait_for_device_event");
+        loop {}
     }
 
     async fn bus_reset(&self) {
@@ -138,4 +139,66 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     {
         todo!()
     }
+}
+
+//------------------------------------------------------
+// MSS USB CIF Callbacks
+
+#[no_mangle]
+#[doc(hidden)]
+#[allow(non_upper_case_globals)]
+pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {
+    usbh_tx_complete: Some(usbh_tx_complete),
+    usbh_rx: Some(usbh_rx),
+    usbh_cep: Some(usbh_cep),
+    usbh_connect: Some(usbh_connect),
+    usbh_disconnect: Some(usbh_disconnect),
+    usbh_dma_handler: Some(usbh_dma_handler),
+
+    usbh_sof: None,             // Never called
+    usbh_vbus_error: None,      // Never called
+    usbh_babble_error: None,    // Never called
+    usbh_session_request: None, // Never called
+};
+
+extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
+    log::trace!("usbh_tx_complete: ep={}, status={}", ep_num, status);
+}
+
+extern "C" fn usbh_rx(ep_num: u8, status: u8) {
+    log::trace!("usbh_rx: ep={}, status={}", ep_num, status);
+}
+
+extern "C" fn usbh_cep(status: u8) {
+    log::trace!("usbh_cep: status={}", status);
+}
+
+extern "C" fn usbh_connect(
+    target_speed: pac::mss_usb_device_speed_t,
+    vbus_level: pac::mss_usb_vbus_level_t,
+) {
+    log::trace!(
+        "usbh_connect: speed={:?}, vbus={:?}",
+        target_speed,
+        vbus_level
+    );
+}
+
+extern "C" fn usbh_disconnect() {
+    log::trace!("usbh_disconnect");
+}
+
+extern "C" fn usbh_dma_handler(
+    ep_num: pac::mss_usb_ep_num_t,
+    dma_dir: pac::mss_usb_dma_dir_t,
+    status: u8,
+    dma_addr_val: u32,
+) {
+    log::trace!(
+        "usbh_dma_handler: ep={}, dir={:?}, status={}, addr=0x{:x}",
+        ep_num,
+        dma_dir,
+        status,
+        dma_addr_val
+    );
 }
