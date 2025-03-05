@@ -1,2 +1,4 @@
 pub mod device;
-// pub mod host;
+
+#[cfg(feature = "usb-host")]
+pub mod host;
