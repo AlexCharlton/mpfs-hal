@@ -5,9 +5,24 @@ use embassy_time::{Duration, Timer};
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
-use embassy_usb_driver::{EndpointInfo, Speed};
+use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use mpfs_hal::{pac, Peripheral};
+
+use super::common::*;
+
+// We only have one USB peripheral, so we only need one set of controllers
+static mut EP_IN_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
+    [const { None }; NUM_ENDPOINTS + 1];
+static mut EP_OUT_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
+    [const { None }; NUM_ENDPOINTS + 1];
+
+//------------------------------------------------------
+
+// There's only one USB peripheral, so only one device can be connected at a time
+static mut CONNECTED: DeviceEvent = DeviceEvent::Disconnected;
+static mut DEVICE_EVENT: Option<DeviceEvent> = None;
+static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
 
 #[derive(Default)]
 pub struct UsbHost {}
@@ -66,11 +81,6 @@ impl UsbHost {
     }
 }
 
-// There's only one USB peripheral, so only one device can be connected at a time
-static mut CONNECTED: bool = false;
-static mut DEVICE_EVENT: Option<DeviceEvent> = None;
-static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
-
 impl UsbHostDriver for UsbHost {
     type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D>;
 
@@ -78,7 +88,7 @@ impl UsbHostDriver for UsbHost {
         loop {
             #[allow(static_mut_refs)]
             unsafe {
-                if !CONNECTED {
+                if CONNECTED == DeviceEvent::Disconnected {
                     // When not connected, try to detect connection
                     let session_future = async {
                         // Set session bit periodically to check to see if device is connected
@@ -90,7 +100,7 @@ impl UsbHostDriver for UsbHost {
                         critical_section::with(|_| {
                             if let Some(DeviceEvent::Connected(_)) = DEVICE_EVENT {
                                 let event = DEVICE_EVENT.take().unwrap();
-                                CONNECTED = true;
+                                CONNECTED = event;
                                 Poll::Ready(event)
                             } else {
                                 DEVICE_EVENT_WAKER = Some(cx.waker().clone());
@@ -110,7 +120,7 @@ impl UsbHostDriver for UsbHost {
                             DEVICE_EVENT_WAKER = Some(cx.waker().clone());
                             if let Some(DeviceEvent::Disconnected) = DEVICE_EVENT {
                                 DEVICE_EVENT = None;
-                                CONNECTED = false;
+                                CONNECTED = DeviceEvent::Disconnected;
                                 Poll::Ready(())
                             } else {
                                 Poll::Pending
@@ -134,22 +144,53 @@ impl UsbHostDriver for UsbHost {
         }
     }
 
-    // `pre` - device is low-speed and communication is going through hub, so send PRE packet
-    // What does this mean?
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<T, D>, HostError> {
-        todo!("alloc_channel")
+        assert!(!pre, "Low speed devices aren't supported");
+        log::trace!("alloc_channel {} {:?}", addr, endpoint);
+        // TODO We should only ever allocate channels beloging to one address at a time
+
+        if T::ep_type() == EndpointType::Control {
+            let mut ep = default_ep();
+            ep.num = 0;
+            ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
+            ep.fifo_size = 64;
+            ep.max_pkt_size = endpoint.max_packet_size;
+            ep.interval = 32768; // Max value
+            ep.num_usb_pkt = 1;
+            unsafe {
+                EP_IN_CONTROLLER[0] = Some({
+                    EndpointController {
+                        ep,
+                        ..EndpointController::default()
+                    }
+                });
+                EP_OUT_CONTROLLER[0] = Some({
+                    EndpointController {
+                        ep,
+                        ..EndpointController::default()
+                    }
+                });
+            }
+            Ok(Channel {
+                index: 0,
+                phantom: core::marker::PhantomData,
+            })
+        } else {
+            todo!("alloc_channel non-control")
+        }
     }
 }
 
 //------------------------------------------------------
+
 pub struct Channel<T: channel::Type, D: channel::Direction> {
-    pub direction: D,
-    pub channel_type: T,
+    phantom: core::marker::PhantomData<(T, D)>,
+    index: usize,
 }
 
 impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D> {
@@ -162,6 +203,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsIn,
     {
+        log::trace!("control_in");
         todo!("control_in")
     }
 
@@ -170,6 +212,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsOut,
     {
+        log::trace!("control_out");
         todo!("control_out")
     }
 
@@ -179,13 +222,29 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<(), HostError> {
-        todo!("retarget_channel")
+        assert!(!pre, "Low speed devices aren't supported");
+        log::trace!("retarget_channel {} {:?}", addr, endpoint);
+        if T::ep_type() == EndpointType::Control {
+            unsafe {
+                let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
+                pac::MSS_USBH_CIF_cep_configure(&mut ep.ep);
+                // pac::MSS_USBH_CIF_cep_set_type0_reg
+                (*pac::USB).ENDPOINT[0].TX_TYPE =
+                    (mss_speed() << pac::TYPE0_HOST_MP_TARGET_SPEED_SHIFT) as u8;
+                // pac::MSS_USBH_CIF_tx_ep_set_target_func_addr(0, addr);
+                (*pac::USB).TAR[0].TX_FUNC_ADDR = (addr & 0x7F) as u8;
+            }
+            Ok(())
+        } else {
+            todo!("retarget_channel non-control")
+        }
     }
     /// Send IN request of type other from control
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn,
     {
+        log::trace!("request_in");
         todo!("request_in")
     }
     /// Send OUT request of type other from control
@@ -193,8 +252,19 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     where
         D: channel::IsOut,
     {
+        log::trace!("request_out");
         todo!("request_out")
     }
+}
+
+fn mss_speed() -> pac::mss_usb_device_speed_t {
+    let speed = unsafe {
+        match CONNECTED {
+            DeviceEvent::Connected(speed) => speed,
+            DeviceEvent::Disconnected => Speed::Low,
+        }
+    };
+    speed_to_mss_value(speed)
 }
 
 //------------------------------------------------------
