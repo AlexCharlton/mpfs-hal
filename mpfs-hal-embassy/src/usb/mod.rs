@@ -1,3 +1,5 @@
+pub(crate) mod common;
+
 pub mod device;
 
 #[cfg(feature = "usb-host")]
