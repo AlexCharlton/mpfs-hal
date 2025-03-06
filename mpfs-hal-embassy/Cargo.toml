@@ -13,10 +13,11 @@ default-target = "riscv64gc-unknown-none-elf"
 features = []
 
 [features]
-default = ["beaglev-fire", "usb-host"]
+default = ["beaglev-fire", "usb-host", "usb-device"]
 debug-logs = ["mpfs-hal/debug-logs"]
 beaglev-fire = ["mpfs-hal/beaglev-fire"]
-usb-host = ["alloc"]
+usb-host = []
+usb-device = []
 alloc = ["mpfs-hal/alloc"]
 
 [dependencies]
