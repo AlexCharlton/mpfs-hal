@@ -9,8 +9,8 @@ use embassy_usb::class::midi::MidiClass;
 use embassy_usb::driver::EndpointError;
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
 
-use mpfs_hal::usb::device::UsbDriver;
 use mpfs_hal::Peripheral;
+use mpfs_hal_embassy::usb::device::UsbDriver;
 
 #[macro_use]
 extern crate mpfs_hal;

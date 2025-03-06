@@ -11,6 +11,8 @@ pub mod qspi;
 
 pub mod sd;
 
+pub mod usb;
+
 pub use mpfs_hal_procmacros::{
     embassy_hart1_main, embassy_hart2_main, embassy_hart3_main, embassy_hart4_main,
 };

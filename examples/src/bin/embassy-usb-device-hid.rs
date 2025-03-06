@@ -18,7 +18,7 @@ extern crate mpfs_hal;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    let mut driver = mpfs_hal::usb::device::UsbDriver::take().unwrap();
+    let mut driver = mpfs_hal_embassy::usb::device::UsbDriver::take().unwrap();
     driver.set_full_speed();
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

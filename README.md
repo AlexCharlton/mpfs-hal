@@ -18,8 +18,6 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 - UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html) `SpiBus`)
 - Ethernet ([embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver`)
-- USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver`)
-- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/pull/3307)) in the works
 
 > [!NOTE]
 > While the `mpfs-hal` crate implements some Embassy traits, it comes with no requirement to use Embassy. These traits were used in the absence of other async traits available in the ecosystem, and they come with the benefit of having USB/Ethernet stacks already implemented with [embassy-usb](https://docs.embassy.dev/embassy-usb/git/default/index.html) and [embassy-net](https://docs.embassy.dev/embassy-net/git/default/index.html) (both of which also do not need to be used with the Embassy executor, if so desired).
@@ -28,6 +26,8 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 `mpfs-hal-embassy` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal-embassy)](https://crates.io/crates/mpfs-hal-embassy) [![Docs.rs](https://docs.rs/mpfs-hal-embassy/badge.svg)](https://docs.rs/mpfs-hal-embassy)<br />
 - Embassy integration, with an Executor and Time Driver, supporting multicore with timer interrupts for low-power application.
 - Board-specific SD peripheral support via [embassy-embedded-hal](https://docs.embassy.dev/embassy-embedded-hal/git/default/shared_bus/asynch/spi/struct.SpiDevice.html) `SpiDevice` (which implements the [embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiDevice.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiDevice.html) traits of the same name)
+- USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver`)
+- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/pull/3307)) in the works
 
 
 `mpfs-pac` | [![Crates.io](https://img.shields.io/crates/v/mpfs-pac)](https://crates.io/crates/mpfs-pac) [![Docs.rs](https://docs.rs/mpfs-pac/badge.svg)](https://docs.rs/mpfs-pac)<br />

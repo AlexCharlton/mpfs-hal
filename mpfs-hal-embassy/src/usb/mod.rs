@@ -7,7 +7,7 @@ pub mod host;
 #[no_mangle]
 #[doc(hidden)]
 #[allow(non_upper_case_globals)]
-pub static g_mss_usbh_cb: crate::pac::mss_usbh_cb_t = crate::pac::mss_usbh_cb_t {
+pub static g_mss_usbh_cb: mpfs_hal::pac::mss_usbh_cb_t = mpfs_hal::pac::mss_usbh_cb_t {
     usbh_tx_complete: None,
     usbh_rx: None,
     usbh_cep: None,

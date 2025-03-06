@@ -1,9 +1,10 @@
+use embassy_time::{Duration, Timer};
 use embassy_usb_driver::host::{
     channel, ChannelError, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
 use embassy_usb_driver::EndpointInfo;
 
-use crate::{pac, Peripheral};
+use mpfs_hal::{pac, Peripheral};
 
 #[derive(Default)]
 pub struct UsbHost {}
@@ -70,8 +71,13 @@ impl UsbHostDriver for UsbHost {
     type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D>;
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
-        log::trace!("wait_for_device_event");
-        loop {}
+        loop {
+            log::trace!("wait_for_device_event");
+            unsafe {
+                (*pac::USB).DEV_CTRL |= pac::DEV_CTRL_SESSION_MASK as u8;
+            }
+            Timer::after(Duration::from_millis(5000)).await;
+        }
     }
 
     async fn bus_reset(&self) {
