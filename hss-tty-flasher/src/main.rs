@@ -25,11 +25,14 @@ enum Mode {
     TerminalOnly,
     Terminal,
     Flash,
+    // After rebooting once, enter HssbootedPostFlash state in which we won't flash
+    FlashAlternate,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum FlashState {
     HssBooted,
+    HssBootedPostFlash,
     HssInterruptPrompt,
     UsbHostConnecting,
     UsbHostConnected,
@@ -47,16 +50,27 @@ impl Mode {
             }
             Mode::Flash => format!(
                 "\x1b[7mFLASH MODE | State: {} | Ctrl-T: Exit | Ctrl-Y: Toggle Mode\x1b[0m",
-                match flash_state {
-                    FlashState::HssBooted => "HSS Booted",
-                    FlashState::HssInterruptPrompt => "Interrupting boot",
-                    FlashState::UsbHostConnecting => "USB Host Connecting",
-                    FlashState::UsbHostConnected => "USB Host Connected",
-                    FlashState::Flashing => "Flashing",
-                    FlashState::FlashComplete => "Flash Complete",
-                    FlashState::Unknown => "Unknown",
-                }
+                flash_state.status_text()
             ),
+            Mode::FlashAlternate => format!(
+                "\x1b[7mALTERNATING | State: {} | Ctrl-T: Exit | Ctrl-Y: Toggle Mode\x1b[0m",
+                flash_state.status_text()
+            ),
+        }
+    }
+}
+
+impl FlashState {
+    fn status_text(&self) -> &'static str {
+        match self {
+            FlashState::HssBooted => "HSS Booted",
+            FlashState::HssBootedPostFlash => "Terminal",
+            FlashState::HssInterruptPrompt => "Interrupting boot",
+            FlashState::UsbHostConnecting => "USB Host Connecting",
+            FlashState::UsbHostConnected => "USB Host Connected",
+            FlashState::Flashing => "Flashing",
+            FlashState::FlashComplete => "Flash Complete",
+            FlashState::Unknown => "Unknown",
         }
     }
 }
@@ -169,16 +183,20 @@ fn spawn_reader_thread(
                     for c in data.chars() {
                         if c == '\n' {
                             // Only handle line in Flash mode
-                            if current_mode == Mode::Flash {
-                                if let Ok(new_state) =
-                                    handle_line(current_state, &mut port, &current_line)
-                                {
+                            if current_mode == Mode::Flash || current_mode == Mode::FlashAlternate {
+                                if let Ok(new_state) = handle_line(
+                                    current_mode,
+                                    current_state,
+                                    &mut port,
+                                    &current_line,
+                                ) {
                                     if new_state != current_state {
                                         current_state = new_state;
                                         tx.send(current_state).unwrap();
                                     }
                                 }
                             }
+                            tx.send(current_state).unwrap();
                             serial_log.push(current_line.clone());
                             current_line.clear();
                         } else {
@@ -194,14 +212,22 @@ fn spawn_reader_thread(
 }
 
 fn handle_line(
+    current_mode: Mode,
     current_state: FlashState,
     port: &mut Box<dyn serialport::SerialPort>,
     line: &str,
 ) -> Result<FlashState, io::Error> {
     if line.contains("PolarFire(R) SoC Hart Software Services (HSS)") {
-        return Ok(FlashState::HssBooted);
+        if current_state == FlashState::FlashComplete && current_mode == Mode::FlashAlternate {
+            return Ok(FlashState::HssBootedPostFlash);
+        } else {
+            return Ok(FlashState::HssBooted);
+        }
     }
-    if line.contains("Press a key to enter CLI, ESC to skip") {
+
+    if line.contains("Press a key to enter CLI, ESC to skip")
+        && current_state != FlashState::HssBootedPostFlash
+    {
         port.write_all("c\r\n".as_bytes())?;
         return Ok(FlashState::HssInterruptPrompt);
     }
@@ -394,7 +420,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         } => {
                             mode = match mode {
                                 Mode::Terminal => Mode::Flash,
-                                Mode::Flash => Mode::Terminal,
+                                Mode::Flash => Mode::FlashAlternate,
+                                Mode::FlashAlternate => Mode::Terminal,
                                 _ => unreachable!(),
                             };
                             mode_tx.send(mode).unwrap();
