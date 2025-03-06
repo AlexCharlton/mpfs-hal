@@ -34,7 +34,6 @@ pub mod gpio;
 pub mod qspi;
 pub mod spi;
 pub mod uart;
-pub mod usb;
 
 //----------------------------------------------------------
 // Entry points

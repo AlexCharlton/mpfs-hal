@@ -6,8 +6,8 @@
 use embassy_usb::handlers::{kbd::KbdHandler, UsbHostHandler};
 use embassy_usb::host::UsbHostBusExt;
 use embassy_usb_driver::host::{DeviceEvent::Connected, UsbHostDriver};
-use mpfs_hal::usb::host::UsbHost;
 use mpfs_hal::Peripheral;
+use mpfs_hal_embassy::usb::host::UsbHost;
 
 #[macro_use]
 extern crate mpfs_hal;

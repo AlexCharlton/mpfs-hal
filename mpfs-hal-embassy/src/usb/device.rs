@@ -5,7 +5,7 @@ use embassy_usb_driver::{
     EndpointType, Event,
 };
 
-use crate::{pac, Peripheral};
+use mpfs_hal::{pac, Peripheral};
 
 // This should not be raised unless related constants in Endpoint Common are ammended
 const NUM_ENDPOINTS: usize = 16;
@@ -15,10 +15,10 @@ mod ep {
     extern crate alloc;
 
     use super::{default_ep, EndpointState, MAX_FIFO_SIZE};
-    use crate::pac;
     use aligned::{Aligned, A4};
     use alloc::boxed::Box;
     use core::task::Waker;
+    use mpfs_hal::pac;
 
     #[derive(Debug)]
     pub struct EndpointController {
@@ -49,8 +49,8 @@ mod ep {
 #[cfg(not(feature = "alloc"))]
 mod ep {
     use super::{default_ep, EndpointState};
-    use crate::pac;
     use core::task::Waker;
+    use mpfs_hal::pac;
 
     #[derive(Debug)]
     pub struct EndpointController {
