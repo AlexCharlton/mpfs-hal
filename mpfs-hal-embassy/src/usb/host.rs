@@ -1,8 +1,11 @@
+use core::future::poll_fn;
+use core::task::{Poll, Waker};
+use embassy_futures::{select, select::Either};
 use embassy_time::{Duration, Timer};
 use embassy_usb_driver::host::{
-    channel, ChannelError, HostError, SetupPacket, UsbChannel, UsbHostDriver,
+    channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
-use embassy_usb_driver::EndpointInfo;
+use embassy_usb_driver::{EndpointInfo, Speed};
 
 use mpfs_hal::{pac, Peripheral};
 
@@ -47,10 +50,6 @@ impl UsbHost {
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
 
-            // Not used (needed) in Device, but called in example
-            // PLIC_EnableIRQ(USB_DMA_PLIC);
-            // PLIC_EnableIRQ(USB_MC_PLIC);
-
             //  called in MSS_USBH_init(&MSS_USBH_user_cb);
             pac::MSS_USBH_CIF_init();
             // MSS_USBH_configure_control_pipe(TDEV_R);
@@ -67,16 +66,61 @@ impl UsbHost {
     }
 }
 
+// There's only one USB peripheral, so only one device can be connected at a time
+static mut CONNECTED: bool = false;
+static mut DEVICE_EVENT: Option<DeviceEvent> = None;
+static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
+
 impl UsbHostDriver for UsbHost {
     type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D>;
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
         loop {
-            log::trace!("wait_for_device_event");
+            #[allow(static_mut_refs)]
             unsafe {
-                (*pac::USB).DEV_CTRL |= pac::DEV_CTRL_SESSION_MASK as u8;
+                if !CONNECTED {
+                    // When not connected, try to detect connection
+                    let session_future = async {
+                        // Set session bit periodically to check to see if device is connected
+                        (*pac::USB).DEV_CTRL |= pac::DEV_CTRL_SESSION_MASK as u8;
+                        Timer::after(Duration::from_millis(5000)).await;
+                    };
+
+                    let event_future = poll_fn(|cx| {
+                        critical_section::with(|_| {
+                            if let Some(DeviceEvent::Connected(_)) = DEVICE_EVENT {
+                                let event = DEVICE_EVENT.take().unwrap();
+                                CONNECTED = true;
+                                Poll::Ready(event)
+                            } else {
+                                DEVICE_EVENT_WAKER = Some(cx.waker().clone());
+                                Poll::Pending
+                            }
+                        })
+                    });
+
+                    let event = select::select(session_future, event_future).await;
+                    if let Either::Second(event) = event {
+                        return event;
+                    }
+                } else {
+                    // When connected, wait for disconnect
+                    poll_fn(|cx| {
+                        critical_section::with(|_| {
+                            DEVICE_EVENT_WAKER = Some(cx.waker().clone());
+                            if let Some(DeviceEvent::Disconnected) = DEVICE_EVENT {
+                                DEVICE_EVENT = None;
+                                CONNECTED = false;
+                                Poll::Ready(())
+                            } else {
+                                Poll::Pending
+                            }
+                        })
+                    })
+                    .await;
+                    return embassy_usb_driver::host::DeviceEvent::Disconnected;
+                }
             }
-            Timer::after(Duration::from_millis(5000)).await;
         }
     }
 
@@ -154,12 +198,12 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
 #[doc(hidden)]
 #[allow(non_upper_case_globals)]
 pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {
+    usbh_cep: Some(usbh_cep),
     usbh_tx_complete: Some(usbh_tx_complete),
     usbh_rx: Some(usbh_rx),
-    usbh_cep: Some(usbh_cep),
+    usbh_dma_handler: Some(usbh_dma_handler),
     usbh_connect: Some(usbh_connect),
     usbh_disconnect: Some(usbh_disconnect),
-    usbh_dma_handler: Some(usbh_dma_handler),
 
     usbh_sof: None,             // Never called
     usbh_vbus_error: None,      // Never called
@@ -167,31 +211,16 @@ pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {
     usbh_session_request: None, // Never called
 };
 
+extern "C" fn usbh_cep(status: u8) {
+    log::trace!("usbh_cep: status={}", status);
+}
+
 extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
     log::trace!("usbh_tx_complete: ep={}, status={}", ep_num, status);
 }
 
 extern "C" fn usbh_rx(ep_num: u8, status: u8) {
     log::trace!("usbh_rx: ep={}, status={}", ep_num, status);
-}
-
-extern "C" fn usbh_cep(status: u8) {
-    log::trace!("usbh_cep: status={}", status);
-}
-
-extern "C" fn usbh_connect(
-    target_speed: pac::mss_usb_device_speed_t,
-    vbus_level: pac::mss_usb_vbus_level_t,
-) {
-    log::trace!(
-        "usbh_connect: speed={:?}, vbus={:?}",
-        target_speed,
-        vbus_level
-    );
-}
-
-extern "C" fn usbh_disconnect() {
-    log::trace!("usbh_disconnect");
 }
 
 extern "C" fn usbh_dma_handler(
@@ -207,4 +236,37 @@ extern "C" fn usbh_dma_handler(
         status,
         dma_addr_val
     );
+}
+
+extern "C" fn usbh_connect(
+    target_speed: pac::mss_usb_device_speed_t,
+    vbus_level: pac::mss_usb_vbus_level_t,
+) {
+    let speed = match target_speed {
+        pac::mss_usb_device_speed_t_MSS_USB_DEVICE_FS => Speed::Full,
+        pac::mss_usb_device_speed_t_MSS_USB_DEVICE_HS => Speed::High,
+        _ => Speed::Low,
+    };
+
+    log::trace!("usbh_connect: speed={:?}, vbus={:?}", speed, vbus_level);
+
+    #[allow(static_mut_refs)]
+    critical_section::with(|_| unsafe {
+        DEVICE_EVENT = Some(DeviceEvent::Connected(speed));
+        if let Some(waker) = DEVICE_EVENT_WAKER.take() {
+            waker.wake();
+        }
+    });
+}
+
+extern "C" fn usbh_disconnect() {
+    log::trace!("usbh_disconnect");
+
+    #[allow(static_mut_refs)]
+    critical_section::with(|_| unsafe {
+        DEVICE_EVENT = Some(DeviceEvent::Disconnected);
+        if let Some(waker) = DEVICE_EVENT_WAKER.take() {
+            waker.wake();
+        }
+    });
 }
