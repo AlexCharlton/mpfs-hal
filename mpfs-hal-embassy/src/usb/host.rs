@@ -125,7 +125,13 @@ impl UsbHostDriver for UsbHost {
     }
 
     async fn bus_reset(&self) {
-        todo!()
+        unsafe {
+            // MSS_USBH_CIF_assert_bus_reset
+            (*pac::USB).POWER |= pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
+            Timer::after(Duration::from_millis(50)).await;
+            // MSS_USBH_CIF_clr_bus_reset
+            (*pac::USB).POWER &= !pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
+        }
     }
 
     // `pre` - device is low-speed and communication is going through hub, so send PRE packet
@@ -136,7 +142,7 @@ impl UsbHostDriver for UsbHost {
         endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<T, D>, HostError> {
-        todo!()
+        todo!("alloc_channel")
     }
 }
 
@@ -156,7 +162,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        todo!()
+        todo!("control_in")
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
@@ -164,7 +170,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsOut,
     {
-        todo!()
+        todo!("control_out")
     }
 
     fn retarget_channel(
@@ -173,21 +179,21 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<(), HostError> {
-        todo!()
+        todo!("retarget_channel")
     }
     /// Send IN request of type other from control
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn,
     {
-        todo!()
+        todo!("request_in")
     }
     /// Send OUT request of type other from control
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsOut,
     {
-        todo!()
+        todo!("request_out")
     }
 }
 
