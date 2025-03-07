@@ -35,6 +35,15 @@ pub mod qspi;
 pub mod spi;
 pub mod uart;
 
+/// Put in a panic handler to put the core into a low power loop
+pub fn low_power_loop_forever() -> ! {
+    loop {
+        unsafe {
+            core::arch::asm!("wfi");
+        }
+    }
+}
+
 //----------------------------------------------------------
 // Entry points
 

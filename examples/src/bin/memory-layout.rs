@@ -94,5 +94,5 @@ pub fn hart1_main() {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }

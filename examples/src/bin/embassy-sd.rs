@@ -114,7 +114,7 @@ async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }
 
 #[mpfs_hal::init_once]
