@@ -204,7 +204,51 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         D: channel::IsIn,
     {
         log::trace!("control_in");
-        todo!("control_in")
+        unsafe {
+            let mut aligned_buffer = buf.as_ptr();
+            if aligned_buffer.align_offset(4) != 0 {
+                let e = EP_IN_CONTROLLER[0].as_mut().unwrap();
+                log::warn!("control_in: data should be 32-bit aligned");
+                aligned_buffer = e.buffer_addr()[..buf.len()].as_ptr();
+            }
+            let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
+            ep.ep.buf_addr = aligned_buffer as *mut u8;
+            ep.ep.xfr_length = buf.len() as u32;
+            ep.ep.xfr_count = 0;
+            ep.ep.txn_count = 0;
+            ep.ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
+
+            critical_section::with(|_| {
+                EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
+            });
+
+            pac::MSS_USBH_CIF_load_tx_fifo(
+                0,
+                // Could this cause alignment issues?
+                setup.as_bytes().as_ptr() as *mut core::ffi::c_void,
+                8,
+            );
+            // MSS_USBH_CIF_cep_set_setuppktrdy
+            (*pac::USB).ENDPOINT[0].TX_CSR |=
+                (pac::CSR0L_HOST_SETUP_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
+        }
+
+        let read_size = poll_fn(|cx| {
+            critical_section::with(|_| unsafe {
+                if let EndpointState::RxComplete(i) = EP_IN_CONTROLLER[0].as_ref().unwrap().state {
+                    EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    Poll::Ready(i)
+                } else {
+                    EP_IN_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
+
+        log::trace!("control_in: read={:x?}", &buf[..read_size]);
+
+        Ok(read_size)
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
@@ -212,7 +256,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsOut,
     {
-        log::trace!("control_out");
+        log::trace!("control_out: setup={:?}, buf={:x?}", setup, buf);
         todo!("control_out")
     }
 
@@ -289,6 +333,45 @@ pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {
 
 extern "C" fn usbh_cep(status: u8) {
     log::trace!("usbh_cep: status={}", status);
+    if status != pac::mss_usb_ep_state_t_MSS_USB_EP_TXN_SUCCESS as u8 {
+        log::error!("usbh_cep: non-success status={}", status);
+    }
+    critical_section::with(|_| unsafe {
+        // let out_state = &mut EP_OUT_CONTROLLER[0].as_mut().unwrap().state;
+        let in_ep = &mut EP_IN_CONTROLLER[0].as_mut().unwrap();
+        let out_ep = &mut EP_OUT_CONTROLLER[0].as_mut().unwrap();
+        if in_ep.state == EndpointState::Setup {
+            in_ep.state = EndpointState::Rx;
+            // MSS_USBH_CIF_cep_set_request_in_pkt
+            (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
+
+        // TODO? When transfer length is 0:
+        // MSS_USBH_CIF_cep_set_statuspktrdy_after_out();
+        } else if in_ep.state == EndpointState::Rx {
+            pac::MSS_USBH_CIF_cep_read_pkt(&mut in_ep.ep);
+            if in_ep.ep.xfr_count == in_ep.ep.xfr_length {
+                // Done
+
+                // MSS_USBH_CIF_cep_set_statuspktrdy_after_in
+                (*pac::USB).ENDPOINT[0].TX_CSR |=
+                    (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
+                in_ep.state = EndpointState::RxComplete(in_ep.ep.xfr_count as usize);
+                if let Some(waker) = in_ep.waker.as_mut() {
+                    waker.wake_by_ref();
+                }
+            } else {
+                // Request next packet
+                // MSS_USBH_CIF_cep_set_request_in_pkt
+                (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
+            }
+        } else {
+            log::error!(
+                "usbh_cep: unknown state = IN {:?}, OUT {:?}",
+                in_ep.state,
+                out_ep.state
+            );
+        }
+    });
 }
 
 extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {

@@ -861,16 +861,18 @@ extern "C" fn usbd_cep_setup(status: u8) {
     // The other two we can handle the same (I think?)
     critical_section::with(|_| unsafe {
         let read_ready = pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0;
-        if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Rx && read_ready {
+        let out_state = &mut EP_OUT_CONTROLLER[0].as_mut().unwrap().state;
+        let in_state = &mut EP_IN_CONTROLLER[0].as_mut().unwrap().state;
+        if *out_state == EndpointState::Rx && read_ready {
             // MSS_USB_CIF_cep_rx_byte_count
             let len = (*pac::USB).INDEXED_CSR.DEVICE_EP0.COUNT0 & pac::COUNT0_REG_MASK as u16;
-            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::RxComplete(len as usize);
-        } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Tx {
-            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxReadyForNext;
-        } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::TxLast {
-            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxComplete;
+            *out_state = EndpointState::RxComplete(len as usize);
+        } else if *in_state == EndpointState::Tx {
+            *in_state = EndpointState::TxReadyForNext;
+        } else if *in_state == EndpointState::TxLast {
+            *in_state = EndpointState::TxComplete;
         } else if read_ready {
-            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
+            *out_state = EndpointState::Setup;
         }
 
         #[allow(static_mut_refs)]
