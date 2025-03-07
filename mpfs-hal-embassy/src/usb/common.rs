@@ -212,10 +212,10 @@ pub const fn default_ep() -> pac::mss_usb_ep_t {
         // Used for configuration by the high-level driver, but not by this
         add_zlp: 0,     // Used by the high-level driver that we don't use
         num_usb_pkt: 1, // This must always be 1, according to mss_usb_device.h
+        cep_data_dir: 0,
 
         // Unused?
         cep_cmd_addr: core::ptr::null_mut(),
-        cep_data_dir: 0,
         disable_ping: 0,
         interval: 0,
         stall: 0,
