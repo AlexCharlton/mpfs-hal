@@ -35,7 +35,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }
 
 #[derive(Debug, PartialEq)]
