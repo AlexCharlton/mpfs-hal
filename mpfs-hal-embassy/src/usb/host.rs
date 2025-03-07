@@ -203,7 +203,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        log::trace!("control_in");
+        log::trace!("control_in: setup={:?}", setup);
         unsafe {
             let mut aligned_buffer = buf.as_ptr();
             if aligned_buffer.align_offset(4) != 0 {
@@ -257,7 +257,49 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         D: channel::IsOut,
     {
         log::trace!("control_out: setup={:?}, buf={:x?}", setup, buf);
-        todo!("control_out")
+        unsafe {
+            let mut aligned_buffer = buf.as_ptr();
+            if aligned_buffer.align_offset(4) != 0 && buf.len() > 0 {
+                let e = EP_OUT_CONTROLLER[0].as_mut().unwrap();
+                log::warn!("control_out: data should be 32-bit aligned");
+                aligned_buffer = e.buffer_addr()[..buf.len()].as_ptr();
+            }
+            let ep = EP_OUT_CONTROLLER[0].as_mut().unwrap();
+            ep.ep.buf_addr = aligned_buffer as *mut u8;
+            ep.ep.xfr_length = buf.len() as u32;
+            ep.ep.xfr_count = 0;
+            ep.ep.txn_count = 0;
+            ep.ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
+
+            critical_section::with(|_| {
+                EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
+            });
+
+            pac::MSS_USBH_CIF_load_tx_fifo(
+                0,
+                // Could this cause alignment issues?
+                setup.as_bytes().as_ptr() as *mut core::ffi::c_void,
+                8,
+            );
+            // MSS_USBH_CIF_cep_set_setuppktrdy
+            (*pac::USB).ENDPOINT[0].TX_CSR |=
+                (pac::CSR0L_HOST_SETUP_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
+        }
+
+        poll_fn(|cx| {
+            critical_section::with(|_| unsafe {
+                if let EndpointState::TxComplete = EP_OUT_CONTROLLER[0].as_ref().unwrap().state {
+                    EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    Poll::Ready(())
+                } else {
+                    EP_OUT_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
+
+        Ok(buf.len())
     }
 
     fn retarget_channel(
@@ -344,9 +386,6 @@ extern "C" fn usbh_cep(status: u8) {
             in_ep.state = EndpointState::Rx;
             // MSS_USBH_CIF_cep_set_request_in_pkt
             (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
-
-        // TODO? When transfer length is 0:
-        // MSS_USBH_CIF_cep_set_statuspktrdy_after_out();
         } else if in_ep.state == EndpointState::Rx {
             pac::MSS_USBH_CIF_cep_read_pkt(&mut in_ep.ep);
             if in_ep.ep.xfr_count == in_ep.ep.xfr_length {
@@ -364,8 +403,24 @@ extern "C" fn usbh_cep(status: u8) {
                 // MSS_USBH_CIF_cep_set_request_in_pkt
                 (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
             }
+        } else if out_ep.state == EndpointState::Setup {
+            if out_ep.ep.xfr_length == 0 {
+                // MSS_USBH_CIF_cep_set_statuspktrdy_after_out
+                (*pac::USB).ENDPOINT[0].TX_CSR |=
+                    (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_IN_PKT_REQ_MASK) as u16;
+                out_ep.state = EndpointState::TxLast;
+            } else {
+                todo!("usbh_cep: setup OUT with non-zero length");
+            }
+        } else if out_ep.state == EndpointState::TxLast {
+            // We've read the response to the ZLP
+            pac::MSS_USBH_CIF_cep_clr_statusRxpktrdy();
+            out_ep.state = EndpointState::TxComplete;
+            if let Some(waker) = out_ep.waker.as_mut() {
+                waker.wake_by_ref();
+            }
         } else {
-            log::error!(
+            log::warn!(
                 "usbh_cep: unknown state = IN {:?}, OUT {:?}",
                 in_ep.state,
                 out_ep.state
