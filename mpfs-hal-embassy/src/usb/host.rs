@@ -117,6 +117,7 @@ impl UsbHostDriver for UsbHost {
 
                     let event = select::select(session_future, event_future).await;
                     if let Either::Second(event) = event {
+                        log::debug!("USB connected");
                         return event;
                     }
                 } else {
@@ -134,6 +135,7 @@ impl UsbHostDriver for UsbHost {
                         })
                     })
                     .await;
+                    log::debug!("USB disconnected");
                     return embassy_usb_driver::host::DeviceEvent::Disconnected;
                 }
             }
@@ -147,6 +149,8 @@ impl UsbHostDriver for UsbHost {
             Timer::after(Duration::from_millis(50)).await;
             // MSS_USBH_CIF_clr_bus_reset
             (*pac::USB).POWER &= !pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
+            // Without this wait, the device becomes unhappy
+            Timer::after(Duration::from_millis(20)).await;
         }
     }
 
@@ -304,7 +308,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                 }
             })
         })
-        .await;
+        .await?;
 
         log::trace!("control_in: read={:x?}", &buf[..read_size]);
 
@@ -425,8 +429,53 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         D: channel::IsIn,
     {
         log::trace!("request_in");
-        todo!("request_in")
+
+        // MSS_USBH_read_in_pipe
+        // TODO: DMA
+
+        unsafe {
+            let mut aligned_buffer = buf.as_ptr();
+            let ep = EP_IN_CONTROLLER[self.index].as_mut().unwrap();
+            if aligned_buffer.align_offset(4) != 0 {
+                log::warn!("request_in: data should be 32-bit aligned");
+                aligned_buffer = ep.buffer_addr()[..buf.len()].as_ptr();
+            }
+            critical_section::with(|_| {
+                ep.state = EndpointState::Rx;
+                ep.ep.buf_addr = aligned_buffer as *mut u8;
+                ep.ep.xfr_length = buf.len() as u32;
+                ep.ep.xfr_count = 0;
+            });
+            pac::MSS_USB_CIF_rx_ep_read_prepare(
+                ep.ep.num,
+                ep.ep.buf_addr,
+                ep.ep.dma_enable,
+                ep.ep.dma_channel,
+                ep.ep.xfr_type,
+                ep.ep.xfr_length,
+            );
+            // MSS_USBH_CIF_rx_ep_set_reqpkt((mss_usb_ep_num_t)inpipe_num)
+            (*pac::USB).ENDPOINT[self.index].RX_CSR |= pac::RXCSRL_HOST_EPN_IN_PKT_REQ_MASK as u16;
+        }
+
+        let read = poll_fn(|cx| {
+            critical_section::with(|_| unsafe {
+                let ep = EP_IN_CONTROLLER[self.index].as_mut().unwrap();
+                if let EndpointState::RxComplete(i) = ep.state {
+                    ep.state = EndpointState::Idle;
+                    Poll::Ready(i)
+                } else {
+                    ep.waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+        })
+        .await?;
+        log::trace!("request_in: read={:x?}", &buf[..read]);
+
+        Ok(read)
     }
+
     /// Send OUT request of type other from control
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where
@@ -491,7 +540,7 @@ extern "C" fn usbh_cep(status: u8) {
                 // MSS_USBH_CIF_cep_set_statuspktrdy_after_in
                 (*pac::USB).ENDPOINT[0].TX_CSR |=
                     (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
-                in_ep.state = EndpointState::RxComplete(in_ep.ep.xfr_count as usize);
+                in_ep.state = EndpointState::RxComplete(Ok(in_ep.ep.xfr_count as usize));
                 if let Some(waker) = in_ep.waker.as_mut() {
                     waker.wake_by_ref();
                 }
@@ -532,6 +581,52 @@ extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
 
 extern "C" fn usbh_rx(ep_num: u8, status: u8) {
     log::trace!("usbh_rx: ep={}, status={}", ep_num, status);
+    if status != 0 {
+        log::error!("usbh_rx: non-success status={}", status);
+        critical_section::with(|_| unsafe {
+            let ep = EP_IN_CONTROLLER[ep_num as usize].as_mut().unwrap();
+            let err = match status as u32 {
+                pac::RX_EP_STALL_ERROR => ChannelError::Stall,
+                _ => ChannelError::BadResponse,
+            };
+            ep.state = EndpointState::RxComplete(Err(err));
+            if let Some(waker) = ep.waker.as_mut() {
+                waker.wake_by_ref();
+            }
+        });
+    }
+
+    let index = ep_num as usize;
+    unsafe {
+        // MSS_USB_CIF_rx_ep_is_rxpktrdy
+        if (*pac::USB).ENDPOINT[index].RX_CSR & pac::RxCSRL_REG_EPN_RX_PKT_RDY_MASK as u16 != 0 {
+            let received_count = (*pac::USB).ENDPOINT[index].RX_COUNT as u32;
+            let ep = EP_IN_CONTROLLER[index].as_mut().unwrap();
+
+            if received_count > 0 {
+                pac::MSS_USB_CIF_read_rx_fifo(
+                    ep_num as u32,
+                    ep.ep.buf_addr as *mut core::ffi::c_void,
+                    received_count,
+                );
+                ep.ep.xfr_count += received_count;
+
+                // MSS_USB_CIF_rx_ep_clr_rxpktrdy
+                (*pac::USB).ENDPOINT[index].RX_CSR &= !(pac::RxCSRL_REG_EPN_RX_PKT_RDY_MASK as u16);
+            }
+            if ep.ep.xfr_count >= ep.ep.xfr_length {
+                // Transfer complete
+                ep.state = EndpointState::RxComplete(Ok(ep.ep.xfr_count as usize));
+                if let Some(waker) = ep.waker.as_mut() {
+                    waker.wake_by_ref();
+                }
+            } else {
+                // Request next packet
+                // MSS_USBH_CIF_rx_ep_set_reqpkt((mss_usb_ep_num_t)inpipe_num)
+                (*pac::USB).ENDPOINT[index].RX_CSR |= pac::RXCSRL_HOST_EPN_IN_PKT_REQ_MASK as u16;
+            }
+        }
+    }
 }
 
 extern "C" fn usbh_dma_handler(
