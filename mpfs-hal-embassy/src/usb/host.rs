@@ -54,6 +54,7 @@ impl Peripheral for UsbHost {
 
 impl UsbHost {
     /// Must be called before `start`
+    // TODO: Does this work?
     pub fn disable_high_speed(&mut self) {
         self.fs_only = true;
     }
@@ -106,7 +107,6 @@ impl UsbHostDriver for UsbHost {
                         critical_section::with(|_| {
                             if let Some(DeviceEvent::Connected(_)) = DEVICE_EVENT {
                                 let event = DEVICE_EVENT.take().unwrap();
-                                CONNECTED = event;
                                 Poll::Ready(event)
                             } else {
                                 DEVICE_EVENT_WAKER = Some(cx.waker().clone());
@@ -116,8 +116,22 @@ impl UsbHostDriver for UsbHost {
                     });
 
                     let event = select::select(session_future, event_future).await;
-                    if let Either::Second(event) = event {
+                    if event.is_second() {
                         log::debug!("USB connected");
+                        Timer::after(Duration::from_millis(100)).await;
+                        self.bus_reset().await;
+                        let event = DeviceEvent::Connected(
+                            if !self.fs_only
+                                && (*pac::USB).POWER & pac::POWER_REG_HS_MODE_MASK as u8 != 0
+                            {
+                                Speed::High
+                            } else {
+                                Speed::Full
+                            },
+                        );
+                        critical_section::with(|_| {
+                            CONNECTED = event;
+                        });
                         return event;
                     }
                 } else {
@@ -143,6 +157,7 @@ impl UsbHostDriver for UsbHost {
     }
 
     async fn bus_reset(&self) {
+        log::trace!("USBH bus_reset");
         unsafe {
             // MSS_USBH_CIF_assert_bus_reset
             (*pac::USB).POWER |= pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
@@ -150,7 +165,7 @@ impl UsbHostDriver for UsbHost {
             // MSS_USBH_CIF_clr_bus_reset
             (*pac::USB).POWER &= !pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
             // Without this wait, the device becomes unhappy
-            Timer::after(Duration::from_millis(20)).await;
+            Timer::after(Duration::from_millis(40)).await;
         }
     }
 
@@ -162,7 +177,7 @@ impl UsbHostDriver for UsbHost {
     ) -> Result<Self::Channel<T, D>, HostError> {
         assert!(!pre, "Low speed devices aren't supported");
         log::trace!(
-            "alloc_channel {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
+            "USBH alloc_channel {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
             addr,
             endpoint,
             T::ep_type() == EndpointType::Control,
@@ -258,6 +273,7 @@ pub struct Channel<T: channel::Type, D: channel::Direction> {
 }
 
 impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D> {
+    // TODO these should probably have timeouts
     async fn control_in(
         &mut self,
         setup: &SetupPacket,
@@ -267,7 +283,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        log::trace!("control_in: setup={:?}", setup);
+        log::trace!("USBH control_in: setup={:?}", setup);
         unsafe {
             let mut aligned_buffer = buf.as_ptr();
             if aligned_buffer.align_offset(4) != 0 {
@@ -298,10 +314,15 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                 (pac::CSR0L_HOST_SETUP_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
         }
 
+        // TODO: Why on earth is this wait important?
+        // We hang otherwise
+        Timer::after(Duration::from_millis(50)).await;
+
         let read_size = poll_fn(|cx| {
             critical_section::with(|_| unsafe {
                 if let EndpointState::RxComplete(i) = EP_IN_CONTROLLER[0].as_ref().unwrap().state {
                     EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                    EP_IN_CONTROLLER[0].as_mut().unwrap().waker = None;
                     Poll::Ready(i)
                 } else {
                     EP_IN_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
@@ -311,7 +332,11 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         })
         .await?;
 
-        log::trace!("control_in: read={:x?}", &buf[..read_size]);
+        if read_size > 10 {
+            log::trace!("control_in: read={:x?}... length={}", &buf[..10], read_size);
+        } else {
+            log::trace!("control_in: read={:x?}", &buf[..read_size]);
+        }
 
         Ok(read_size)
     }
@@ -374,11 +399,16 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         pre: bool,
     ) -> Result<(), HostError> {
         assert!(!pre, "Low speed devices aren't supported");
-        log::trace!("retarget_channel {} {:?}", addr, endpoint);
+        log::trace!("USBH retarget_channel {} {:?}", addr, endpoint);
         unsafe {
             if T::ep_type() == EndpointType::Control {
                 let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
                 pac::MSS_USBH_CIF_cep_configure(&mut ep.ep);
+
+                // Wait before setting speed, or else the device gets unhappy
+                for _ in 0..200000 {
+                    core::hint::spin_loop();
+                }
                 // pac::MSS_USBH_CIF_cep_set_type0_reg
                 (*pac::USB).ENDPOINT[0].TX_TYPE =
                     (mss_speed() << pac::TYPE0_HOST_MP_TARGET_SPEED_SHIFT) as u8;
@@ -429,7 +459,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     where
         D: channel::IsIn,
     {
-        log::trace!("request_in");
+        log::trace!("USBH request_in");
 
         // based off MSS_USBH_read_in_pipe
 
@@ -486,7 +516,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             })
         })
         .await?;
-        log::trace!("request_in: read={:x?}", &buf[..read]);
+        log::trace!("USBH request_in: read={:x?}", &buf[..read]);
 
         Ok(read)
     }
@@ -496,7 +526,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     where
         D: channel::IsOut,
     {
-        log::trace!("request_out");
+        log::trace!("USBH request_out");
         todo!("request_out")
     }
 }
@@ -535,59 +565,75 @@ pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {
 };
 
 extern "C" fn usbh_cep(status: u8) {
-    log::trace!("usbh_cep: status={}", status);
-    if status != pac::mss_usb_ep_state_t_MSS_USB_EP_TXN_SUCCESS as u8 {
-        log::error!("usbh_cep: non-success status={}", status);
-    }
-    critical_section::with(|_| unsafe {
-        // let out_state = &mut EP_OUT_CONTROLLER[0].as_mut().unwrap().state;
+    log::trace!("usbh_cep: Entering with status={}", status);
+
+    unsafe {
         let in_ep = &mut EP_IN_CONTROLLER[0].as_mut().unwrap();
         let out_ep = &mut EP_OUT_CONTROLLER[0].as_mut().unwrap();
-        if in_ep.state == EndpointState::Setup {
-            in_ep.state = EndpointState::Rx;
-            // MSS_USBH_CIF_cep_set_request_in_pkt
-            (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
-        } else if in_ep.state == EndpointState::Rx {
-            pac::MSS_USBH_CIF_cep_read_pkt(&mut in_ep.ep);
-            if in_ep.ep.xfr_count == in_ep.ep.xfr_length {
-                // Done
+        // log::debug!("IN: {:?}, OUT: {:?}", in_ep.state, out_ep.state);
 
-                // MSS_USBH_CIF_cep_set_statuspktrdy_after_in
-                (*pac::USB).ENDPOINT[0].TX_CSR |=
-                    (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
-                in_ep.state = EndpointState::RxComplete(Ok(in_ep.ep.xfr_count as usize));
-                if let Some(waker) = in_ep.waker.as_mut() {
+        critical_section::with(|_| {
+            if status != pac::mss_usb_ep_state_t_MSS_USB_EP_TXN_SUCCESS as u8 {
+                log::error!("usbh_cep: non-success status={}", status);
+                if in_ep.state == EndpointState::Setup || in_ep.state == EndpointState::Rx {
+                    in_ep.state = EndpointState::RxComplete(Err(ChannelError::BadResponse));
+                    return;
+                }
+            }
+            if in_ep.state == EndpointState::Setup {
+                // log::debug!("usbh_cep: Processing IN Setup -> Rx transition");
+                in_ep.state = EndpointState::Rx;
+                (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
+                // log::debug!("usbh_cep: Requested first IN packet");
+            } else if in_ep.state == EndpointState::Rx {
+                // log::debug!("usbh_cep: Processing IN Rx state");
+                pac::MSS_USBH_CIF_cep_read_pkt(&mut in_ep.ep);
+                // log::debug!(
+                //     "usbh_cep: Read packet - count={}, length={}",
+                //     in_ep.ep.xfr_count,
+                //     in_ep.ep.xfr_length
+                // );
+
+                if in_ep.ep.xfr_count == in_ep.ep.xfr_length {
+                    // log::debug!("usbh_cep: Transfer complete, sending status packet");
+                    (*pac::USB).ENDPOINT[0].TX_CSR |=
+                        (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
+                    in_ep.state = EndpointState::RxComplete(Ok(in_ep.ep.xfr_count as usize));
+                    if let Some(waker) = in_ep.waker.as_mut() {
+                        // log::debug!("usbh_cep: Waking up waiting task for IN");
+                        waker.wake_by_ref();
+                    }
+                } else {
+                    // log::debug!("usbh_cep: Requesting next packet");
+                    (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
+                }
+            } else if out_ep.state == EndpointState::Setup {
+                // log::debug!("usbh_cep: Processing OUT Setup state");
+                if out_ep.ep.xfr_length == 0 {
+                    // log::debug!("usbh_cep: Zero-length OUT packet, sending status packet");
+                    (*pac::USB).ENDPOINT[0].TX_CSR |=
+                        (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_IN_PKT_REQ_MASK) as u16;
+                    out_ep.state = EndpointState::TxLast;
+                } else {
+                    todo!("usbh_cep: setup OUT with non-zero length");
+                }
+            } else if out_ep.state == EndpointState::TxLast {
+                // log::debug!("usbh_cep: Processing OUT TxLast state");
+                pac::MSS_USBH_CIF_cep_clr_statusRxpktrdy();
+                out_ep.state = EndpointState::TxComplete;
+                if let Some(waker) = out_ep.waker.as_mut() {
+                    // log::debug!("usbh_cep: Waking up waiting task");
                     waker.wake_by_ref();
                 }
             } else {
-                // Request next packet
-                // MSS_USBH_CIF_cep_set_request_in_pkt
-                (*pac::USB).ENDPOINT[0].TX_CSR |= pac::CSR0L_HOST_IN_PKT_REQ_MASK as u16;
+                log::warn!(
+                    "usbh_cep: Unexpected state combination - IN {:?}, OUT {:?}",
+                    in_ep.state,
+                    out_ep.state
+                );
             }
-        } else if out_ep.state == EndpointState::Setup {
-            if out_ep.ep.xfr_length == 0 {
-                // MSS_USBH_CIF_cep_set_statuspktrdy_after_out
-                (*pac::USB).ENDPOINT[0].TX_CSR |=
-                    (pac::CSR0L_HOST_STATUS_PKT_MASK | pac::CSR0L_HOST_IN_PKT_REQ_MASK) as u16;
-                out_ep.state = EndpointState::TxLast;
-            } else {
-                todo!("usbh_cep: setup OUT with non-zero length");
-            }
-        } else if out_ep.state == EndpointState::TxLast {
-            // We've read the response to the ZLP
-            pac::MSS_USBH_CIF_cep_clr_statusRxpktrdy();
-            out_ep.state = EndpointState::TxComplete;
-            if let Some(waker) = out_ep.waker.as_mut() {
-                waker.wake_by_ref();
-            }
-        } else {
-            log::warn!(
-                "usbh_cep: unknown state = IN {:?}, OUT {:?}",
-                in_ep.state,
-                out_ep.state
-            );
-        }
-    });
+        });
+    }
 }
 
 extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
