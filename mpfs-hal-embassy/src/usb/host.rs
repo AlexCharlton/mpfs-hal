@@ -70,19 +70,8 @@ impl UsbHost {
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
 
-            //  called in MSS_USBH_init(&MSS_USBH_user_cb);
             pac::MSS_USBH_CIF_init();
-            // MSS_USBH_configure_control_pipe(TDEV_R);
-
-            // MSS_USBH_HID_init doesn't call any underlying functions
         }
-        // This is called in mss-usb/mpfs-usb-host-hid/src/application/hart1/u54_1.c
-        //  MSS_USBH_register_class_driver(MSS_USBH_HID_get_handle());
-
-        // These are called in a systick handler
-        //     MSS_USBH_task();
-        //     MSS_USBH_HID_task();
-        //     MSS_USBH_1ms_tick();
     }
 }
 
@@ -278,6 +267,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
             ep.ep.buf_addr = aligned_buffer as *mut u8;
             ep.ep.xfr_length = buf.len() as u32;
+
             ep.ep.xfr_count = 0;
             ep.ep.txn_count = 0;
             ep.ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
@@ -430,8 +420,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     {
         log::trace!("request_in");
 
-        // MSS_USBH_read_in_pipe
-        // TODO: DMA
+        // based off MSS_USBH_read_in_pipe
 
         unsafe {
             let mut aligned_buffer = buf.as_ptr();
@@ -442,10 +431,25 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             }
             critical_section::with(|_| {
                 ep.state = EndpointState::Rx;
+                if buf.len() > ep.ep.max_pkt_size as usize {
+                    ep.ep.txn_length = ep.ep.max_pkt_size as u32;
+                } else {
+                    ep.ep.txn_length = buf.len() as u32;
+                }
                 ep.ep.buf_addr = aligned_buffer as *mut u8;
                 ep.ep.xfr_length = buf.len() as u32;
                 ep.ep.xfr_count = 0;
+                ep.ep.txn_count = 0;
             });
+
+            if ep.ep.dma_enable != 0 && T::ep_type() == EndpointType::Bulk {
+                // MSS_USBH_CIF_rx_ep_set_reqpkt_count
+                (*pac::USB).RQ_PKT_CNT[self.index] = ep.ep.xfr_length / ep.ep.max_pkt_size as u32;
+                // MSS_USBH_CIF_rx_ep_set_autoreq;
+                (*pac::USB).ENDPOINT[self.index].RX_CSR |=
+                    pac::RXCSRH_HOST_EPN_ENABLE_AUTOREQ_MASK as u16;
+            }
+
             pac::MSS_USB_CIF_rx_ep_read_prepare(
                 ep.ep.num,
                 ep.ep.buf_addr,
@@ -642,6 +646,7 @@ extern "C" fn usbh_dma_handler(
         status,
         dma_addr_val
     );
+    // TODO: Handle Bulk RX, TX
 }
 
 extern "C" fn usbh_connect(

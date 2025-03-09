@@ -197,7 +197,6 @@ pub fn configure_endpoint_controller(
 
     let dma_channel = endpoint_to_dma_channel(endpoint, direction);
     let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
-    let dma_enable = false;
 
     // Configure double packet buffering if there's enough FIFO space reserved
     let dpb_enable = max_packet_size * 2 <= endpoint_details.fifo_size;
