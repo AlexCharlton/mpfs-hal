@@ -30,6 +30,7 @@ static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
 pub struct UsbHost {
     in_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
     out_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
+    fs_only: bool,
 }
 
 static mut HOST_TAKEN: bool = false;
@@ -52,6 +53,12 @@ impl Peripheral for UsbHost {
 }
 
 impl UsbHost {
+    /// Must be called before `start`
+    pub fn disable_high_speed(&mut self) {
+        self.fs_only = true;
+    }
+
+    /// Initialize the USB host
     pub fn start(&self) {
         unsafe {
             // Unlike the other peripherals, the USB peripheral needs to be explicitly
@@ -69,6 +76,10 @@ impl UsbHost {
             pac::init_usb_dma_upper_address();
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
+
+            if !self.fs_only {
+                (*pac::USB).POWER |= pac::POWER_REG_ENABLE_HS_MASK as u8;
+            }
 
             pac::MSS_USBH_CIF_init();
         }
