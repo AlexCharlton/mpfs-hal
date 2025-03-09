@@ -1,4 +1,4 @@
-use embassy_usb_driver::{Direction, EndpointType, Speed};
+use embassy_usb_driver::{host::HostError, Direction, EndpointType, Speed};
 use mpfs_hal::pac;
 
 // This should not be raised unless related constants in Endpoint Common are ammended
@@ -106,13 +106,60 @@ pub use ep::*;
 //
 // Reference: mss_usb_device.h
 
+#[derive(Default, Copy, Clone)]
+pub struct EndpointDetails {
+    pub used: bool,
+    pub fifo_addr: u16,
+    pub fifo_size: u16,
+}
+
+// We allocate in and out endpoints using the same address space, and then offset in the IN
+// endpoints in `configure_endpoint_controller`.
+pub fn alloc_fifo_addr(
+    max_packet_size: u16,
+    endpoints: &mut [EndpointDetails],
+) -> Result<usize, HostError> {
+    if max_packet_size > MAX_FIFO_SIZE {
+        return Err(HostError::OutOfChannels);
+    }
+    // FIFO size must be a power of 2
+    let mut fifo_size = max_packet_size.next_power_of_two();
+    if fifo_size < 1024 {
+        // If we're using a small enough packet size, we increase the FIFO size
+        // to allow for double packet buffering
+        fifo_size = (fifo_size + 1).next_power_of_two();
+    }
+    if let Some(i) = endpoints.iter().position(|x| !x.used) {
+        let fifo_addr = if i == 0 {
+            0
+        } else {
+            endpoints[i - 1].fifo_addr + endpoints[i - 1].fifo_size
+        };
+        if fifo_addr + fifo_size > IN_ENDPOINTS_START_ADDR {
+            log::error!(
+                "FIFO address is out of bounds for out endpoint {:?} with size {:?}",
+                i,
+                max_packet_size
+            );
+            return Err(HostError::OutOfChannels);
+        }
+        endpoints[i] = EndpointDetails {
+            used: true,
+            fifo_addr,
+            fifo_size,
+        };
+        Ok(i)
+    } else {
+        Err(HostError::OutOfChannels)
+    }
+}
+
 pub fn configure_endpoint_controller(
     direction: Direction,
     endpoint: usize,
     endpoint_type: EndpointType,
     max_packet_size: u16,
-    fifo_addr: u16,
-    fifo_size: u16,
+    endpoint_details: EndpointDetails,
     speed: Speed,
 ) -> EndpointController {
     // Get the standard max packet size based on speed and transfer type
@@ -138,17 +185,24 @@ pub fn configure_endpoint_controller(
         panic!("Max packet size is greater than the allowed max packet size for this transfer type {} expected for {:?}, got {}", std_max_pkt_sz, endpoint_type, max_packet_size);
     }
 
+    let fifo_addr = endpoint_details.fifo_addr
+        + if direction == Direction::Out {
+            OUT_ENDPOINTS_START_ADDR
+        } else {
+            IN_ENDPOINTS_START_ADDR
+        };
+
     let dma_channel = endpoint_to_dma_channel(endpoint, direction);
     let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
 
     // Configure double packet buffering if there's enough FIFO space reserved
-    let dpb_enable = max_packet_size * 2 <= fifo_size;
+    let dpb_enable = max_packet_size * 2 <= endpoint_details.fifo_size;
 
     let ep = pac::mss_usb_ep_t {
         num: endpoint as u32,
-        xfr_type: transfer_type(endpoint_type),
+        xfr_type: mss_transfer_type(endpoint_type),
         max_pkt_size: max_packet_size,
-        fifo_size,
+        fifo_size: endpoint_details.fifo_size,
         fifo_addr,
         dma_enable: dma_enable as u8,
         dpb_enable: dpb_enable as u8,
@@ -162,7 +216,7 @@ pub fn configure_endpoint_controller(
     }
 }
 
-fn transfer_type(endpoint_type: EndpointType) -> pac::mss_usb_xfr_type_t {
+pub fn mss_transfer_type(endpoint_type: EndpointType) -> pac::mss_usb_xfr_type_t {
     match endpoint_type {
         EndpointType::Bulk => pac::mss_usb_xfr_type_t_MSS_USB_XFR_BULK,
         EndpointType::Interrupt => pac::mss_usb_xfr_type_t_MSS_USB_XFR_INTERRUPT,
@@ -221,5 +275,58 @@ pub const fn default_ep() -> pac::mss_usb_ep_t {
         stall: 0,
         req_pkt_n: 0,
         tdev_idx: 0,
+    }
+}
+
+pub fn mss_interval(interval_ms: u8, speed: Speed, endpoint_type: EndpointType) -> u32 {
+    let interval_ms = interval_ms as u32;
+    match endpoint_type {
+        EndpointType::Interrupt => {
+            match speed {
+                Speed::Low | Speed::Full => {
+                    // Direct ms value, capped at 255
+                    if interval_ms > 255 {
+                        255
+                    } else {
+                        interval_ms
+                    }
+                }
+                Speed::High => {
+                    // Convert ms to microframes (multiply by 8)
+                    let microframes = interval_ms * 8;
+                    // Find nearest power of 2 that's >= microframes, then get log2 + 1
+                    let mut interval = 1;
+                    let mut log2_val = 0;
+                    while interval < microframes && interval < 32768 {
+                        interval *= 2;
+                        log2_val += 1;
+                    }
+                    log2_val + 1
+                }
+            }
+        }
+        EndpointType::Isochronous => {
+            // For HS: work in microframes (ms * 8), for FS: work in frames (ms)
+            let base = if speed == Speed::High {
+                interval_ms * 8
+            } else {
+                interval_ms
+            };
+            // Find nearest power of 2 that's >= base
+            let mut interval = 1;
+            while interval < base && interval < 32768 {
+                interval *= 2;
+            }
+            interval
+        }
+        EndpointType::Bulk => {
+            if speed == Speed::High {
+                // Convert ms to microframes, must be even number
+                ((interval_ms * 8 + 1) / 2) * 2
+            } else {
+                0 // Invalid for non-HS bulk
+            }
+        }
+        EndpointType::Control => 0, // Control endpoints don't use interval
     }
 }
