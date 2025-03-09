@@ -1,3 +1,5 @@
+use alloc::rc::Rc;
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 use embassy_futures::{select, select::Either};
@@ -5,7 +7,7 @@ use embassy_time::{Duration, Timer};
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
-use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
 use mpfs_hal::{pac, Peripheral};
 
@@ -25,7 +27,10 @@ static mut DEVICE_EVENT: Option<DeviceEvent> = None;
 static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
 
 #[derive(Default)]
-pub struct UsbHost {}
+pub struct UsbHost {
+    in_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
+    out_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
+}
 
 static mut HOST_TAKEN: bool = false;
 
@@ -91,9 +96,10 @@ impl UsbHostDriver for UsbHost {
                 if CONNECTED == DeviceEvent::Disconnected {
                     // When not connected, try to detect connection
                     let session_future = async {
+                        // Wait first, since we already set this when we first called `start`
+                        Timer::after(Duration::from_millis(5000)).await;
                         // Set session bit periodically to check to see if device is connected
                         (*pac::USB).DEV_CTRL |= pac::DEV_CTRL_SESSION_MASK as u8;
-                        Timer::after(Duration::from_millis(5000)).await;
                     };
 
                     let event_future = poll_fn(|cx| {
@@ -151,38 +157,92 @@ impl UsbHostDriver for UsbHost {
         pre: bool,
     ) -> Result<Self::Channel<T, D>, HostError> {
         assert!(!pre, "Low speed devices aren't supported");
-        log::trace!("alloc_channel {} {:?}", addr, endpoint);
-        // TODO We should only ever allocate channels beloging to one address at a time
+        log::trace!(
+            "alloc_channel {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
+            addr,
+            endpoint,
+            T::ep_type() == EndpointType::Control,
+            D::is_in(),
+            D::is_out()
+        );
+        let index = endpoint.addr.index();
 
-        if T::ep_type() == EndpointType::Control {
+        let (ep_in, ep_out) = if T::ep_type() == EndpointType::Control {
             let mut ep = default_ep();
             ep.num = 0;
             ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
             ep.fifo_size = 64;
             ep.max_pkt_size = endpoint.max_packet_size;
             ep.interval = 32768; // Max value
-            ep.num_usb_pkt = 1;
-            unsafe {
-                EP_IN_CONTROLLER[0] = Some({
-                    EndpointController {
-                        ep,
-                        ..EndpointController::default()
-                    }
-                });
-                EP_OUT_CONTROLLER[0] = Some({
-                    EndpointController {
-                        ep,
-                        ..EndpointController::default()
-                    }
-                });
-            }
-            Ok(Channel {
-                index: 0,
-                phantom: core::marker::PhantomData,
-            })
+            (
+                Some(EndpointController {
+                    ep,
+                    ..EndpointController::default()
+                }),
+                Some(EndpointController {
+                    ep,
+                    ..EndpointController::default()
+                }),
+            )
         } else {
-            todo!("alloc_channel non-control")
+            let ep_in = if D::is_in() {
+                unsafe {
+                    if EP_IN_CONTROLLER[index].is_some() {
+                        return Err(HostError::OutOfChannels);
+                    }
+                }
+                let i = alloc_fifo_addr(
+                    endpoint.max_packet_size,
+                    &mut *self.in_channels_allocated.borrow_mut(),
+                )?;
+
+                Some(configure_endpoint_controller(
+                    Direction::In,
+                    index,
+                    endpoint.ep_type,
+                    endpoint.max_packet_size,
+                    self.in_channels_allocated.borrow()[i],
+                    speed(),
+                ))
+            } else {
+                None
+            };
+
+            let ep_out = if D::is_out() {
+                unsafe {
+                    if EP_OUT_CONTROLLER[index].is_some() {
+                        return Err(HostError::OutOfChannels);
+                    }
+                }
+                let i = alloc_fifo_addr(
+                    endpoint.max_packet_size,
+                    &mut *self.out_channels_allocated.borrow_mut(),
+                )?;
+
+                Some(configure_endpoint_controller(
+                    Direction::Out,
+                    index,
+                    endpoint.ep_type,
+                    endpoint.max_packet_size,
+                    self.out_channels_allocated.borrow()[i],
+                    speed(),
+                ))
+            } else {
+                None
+            };
+            (ep_in, ep_out)
+        };
+        unsafe {
+            // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
+            EP_IN_CONTROLLER[index] = ep_in;
+            EP_OUT_CONTROLLER[index] = ep_out;
         }
+        let mut channel = Channel {
+            index,
+            phantom: core::marker::PhantomData,
+        };
+        channel.retarget_channel(addr, endpoint, pre)?;
+        Ok(channel)
     }
 }
 
@@ -310,20 +370,54 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     ) -> Result<(), HostError> {
         assert!(!pre, "Low speed devices aren't supported");
         log::trace!("retarget_channel {} {:?}", addr, endpoint);
-        if T::ep_type() == EndpointType::Control {
-            unsafe {
+        unsafe {
+            if T::ep_type() == EndpointType::Control {
                 let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
                 pac::MSS_USBH_CIF_cep_configure(&mut ep.ep);
                 // pac::MSS_USBH_CIF_cep_set_type0_reg
                 (*pac::USB).ENDPOINT[0].TX_TYPE =
                     (mss_speed() << pac::TYPE0_HOST_MP_TARGET_SPEED_SHIFT) as u8;
-                // pac::MSS_USBH_CIF_tx_ep_set_target_func_addr(0, addr);
+                // pac::MSS_USBH_CIF_tx_ep_set_target_func_addr(0, endpoint.addr);
                 (*pac::USB).TAR[0].TX_FUNC_ADDR = (addr & 0x7F) as u8;
+            } else {
+                let index = endpoint.addr.index();
+                if D::is_in() {
+                    pac::MSS_USBH_CIF_rx_ep_mp_configure(
+                        index as u8,
+                        index as u8,
+                        addr,
+                        // Needed for hub?
+                        0,
+                        0,
+                        0,
+                        mss_speed(),
+                        mss_interval(endpoint.interval_ms, speed(), endpoint.ep_type),
+                        mss_transfer_type(endpoint.ep_type),
+                    );
+
+                    let ep = EP_IN_CONTROLLER[index].as_mut().unwrap();
+                    pac::MSS_USBH_CIF_rx_ep_configure(&mut ep.ep);
+                }
+                if D::is_out() {
+                    pac::MSS_USBH_CIF_tx_ep_mp_configure(
+                        index as u8,
+                        index as u8,
+                        addr,
+                        // Needed for hub?
+                        0,
+                        0,
+                        0,
+                        mss_speed(),
+                        mss_interval(endpoint.interval_ms, speed(), endpoint.ep_type),
+                        mss_transfer_type(endpoint.ep_type),
+                    );
+
+                    let ep = EP_OUT_CONTROLLER[index].as_mut().unwrap();
+                    pac::MSS_USBH_CIF_tx_ep_configure(&mut ep.ep);
+                }
             }
-            Ok(())
-        } else {
-            todo!("retarget_channel non-control")
         }
+        Ok(())
     }
     /// Send IN request of type other from control
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
@@ -343,14 +437,17 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     }
 }
 
-fn mss_speed() -> pac::mss_usb_device_speed_t {
-    let speed = unsafe {
+fn speed() -> Speed {
+    unsafe {
         match CONNECTED {
             DeviceEvent::Connected(speed) => speed,
             DeviceEvent::Disconnected => Speed::Low,
         }
-    };
-    speed_to_mss_value(speed)
+    }
+}
+
+fn mss_speed() -> pac::mss_usb_device_speed_t {
+    speed_to_mss_value(speed())
 }
 
 //------------------------------------------------------

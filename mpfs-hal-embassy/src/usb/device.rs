@@ -19,13 +19,6 @@ static mut EP_OUT_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
 //------------------------------------------------------
 // Driver
 
-#[derive(Default)]
-struct EndpointDetails {
-    used: bool,
-    fifo_addr: u16,
-    fifo_size: u16,
-}
-
 pub struct UsbDriver<'a> {
     speed: Speed,
     phantom: core::marker::PhantomData<&'a ()>,
@@ -135,60 +128,33 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             endpoint_type,
             max_packet_size
         );
-        if max_packet_size > MAX_FIFO_SIZE {
-            return Err(EndpointAllocError);
-        }
-        // FIFO size must be a power of 2
-        let mut fifo_size = max_packet_size.next_power_of_two();
-        if fifo_size < 1024 {
-            // If we're using a small enough packet size, we increase the FIFO size
-            // to allow for double packet buffering
-            fifo_size = (fifo_size + 1).next_power_of_two();
-        }
-        if let Some(i) = self.out_endpoints_allocated.iter().position(|x| !x.used) {
-            let fifo_addr = if i == 0 {
-                OUT_ENDPOINTS_START_ADDR
-            } else {
-                self.out_endpoints_allocated[i - 1].fifo_addr
-                    + self.out_endpoints_allocated[i - 1].fifo_size
-            };
-            if fifo_addr + fifo_size > IN_ENDPOINTS_START_ADDR {
-                log::error!(
-                    "FIFO address is out of bounds for out endpoint {:?} with size {:?}",
-                    i,
-                    max_packet_size
+        match alloc_fifo_addr(max_packet_size, &mut self.out_endpoints_allocated) {
+            Ok(i) => {
+                let ep = configure_endpoint_controller(
+                    Direction::Out,
+                    i + 1,
+                    endpoint_type,
+                    max_packet_size,
+                    self.out_endpoints_allocated[i],
+                    self.speed,
                 );
+                // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
+                unsafe {
+                    EP_OUT_CONTROLLER[i + 1] = Some(ep);
+                }
+                Ok(EndpointOut {
+                    phantom: core::marker::PhantomData,
+                    info: EndpointInfo {
+                        addr: EndpointAddress::from_parts(i + 1, Direction::Out),
+                        max_packet_size: max_packet_size,
+                        interval_ms: interval_ms,
+                        ep_type: endpoint_type,
+                    },
+                })
+            }
+            Err(_) => {
                 return Err(EndpointAllocError);
             }
-            self.out_endpoints_allocated[i] = EndpointDetails {
-                used: true,
-                fifo_addr,
-                fifo_size,
-            };
-            let ep = configure_endpoint_controller(
-                Direction::Out,
-                i + 1,
-                endpoint_type,
-                max_packet_size,
-                fifo_addr,
-                fifo_size,
-                self.speed,
-            );
-            // TODO: We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
-            unsafe {
-                EP_OUT_CONTROLLER[i + 1] = Some(ep);
-            }
-            Ok(EndpointOut {
-                phantom: core::marker::PhantomData,
-                info: EndpointInfo {
-                    addr: EndpointAddress::from_parts(i + 1, Direction::Out),
-                    max_packet_size: max_packet_size,
-                    interval_ms: interval_ms,
-                    ep_type: endpoint_type,
-                },
-            })
-        } else {
-            Err(EndpointAllocError)
         }
     }
 
@@ -203,61 +169,33 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             endpoint_type,
             max_packet_size
         );
-        if max_packet_size > MAX_FIFO_SIZE {
-            log::error!("Max packet size is greater than the allowed max packet size for this transfer type {} expected for {:?}, got {}", MAX_FIFO_SIZE, endpoint_type, max_packet_size);
-            return Err(EndpointAllocError);
-        }
-        // FIFO size must be a power of 2
-        let mut fifo_size = max_packet_size.next_power_of_two();
-        if fifo_size < 1024 {
-            // If we're using a small enough packet size, we increase the FIFO size
-            // to allow for double packet buffering
-            fifo_size = (fifo_size + 1).next_power_of_two();
-        }
-        if let Some(i) = self.in_endpoints_allocated.iter().position(|x| !x.used) {
-            let fifo_addr = if i == 0 {
-                IN_ENDPOINTS_START_ADDR
-            } else {
-                self.in_endpoints_allocated[i - 1].fifo_addr
-                    + self.in_endpoints_allocated[i - 1].fifo_size
-            };
-            if fifo_addr.checked_add(fifo_size).is_none() {
-                log::error!(
-                    "FIFO address is out of bounds for in endpoint {:?} with size {:?}",
-                    i,
-                    max_packet_size
+        match alloc_fifo_addr(max_packet_size, &mut self.in_endpoints_allocated) {
+            Ok(i) => {
+                let ep = configure_endpoint_controller(
+                    Direction::In,
+                    i + 1,
+                    endpoint_type,
+                    max_packet_size,
+                    self.in_endpoints_allocated[i],
+                    self.speed,
                 );
+                // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
+                unsafe {
+                    EP_IN_CONTROLLER[i + 1] = Some(ep);
+                }
+                Ok(EndpointIn {
+                    phantom: core::marker::PhantomData,
+                    info: EndpointInfo {
+                        addr: EndpointAddress::from_parts(i + 1, Direction::In),
+                        max_packet_size: max_packet_size,
+                        interval_ms: interval_ms,
+                        ep_type: endpoint_type,
+                    },
+                })
+            }
+            Err(_) => {
                 return Err(EndpointAllocError);
             }
-            self.in_endpoints_allocated[i] = EndpointDetails {
-                used: true,
-                fifo_addr: fifo_addr,
-                fifo_size: fifo_size,
-            };
-            let ep = configure_endpoint_controller(
-                Direction::In,
-                i + 1,
-                endpoint_type,
-                max_packet_size,
-                fifo_addr,
-                fifo_size,
-                self.speed,
-            );
-            // TODO: We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
-            unsafe {
-                EP_IN_CONTROLLER[i + 1] = Some(ep);
-            }
-            Ok(EndpointIn {
-                phantom: core::marker::PhantomData,
-                info: EndpointInfo {
-                    addr: EndpointAddress::from_parts(i + 1, Direction::In),
-                    max_packet_size: max_packet_size,
-                    interval_ms: interval_ms,
-                    ep_type: endpoint_type,
-                },
-            })
-        } else {
-            Err(EndpointAllocError)
         }
     }
 
