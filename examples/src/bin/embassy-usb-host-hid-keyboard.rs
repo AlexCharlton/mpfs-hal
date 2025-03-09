@@ -38,13 +38,13 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     loop {
         let result = kbd.wait_for_event().await;
-        log::debug!("{:?}", result);
+        println!("Got interrupt: {:?}", result);
     }
 }
 
 #[mpfs_hal::init_once]
 fn config() {
-    mpfs_hal::init_logger(log::LevelFilter::Trace);
+    mpfs_hal::init_logger(log::LevelFilter::Debug);
 }
 
 #[panic_handler]

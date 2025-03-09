@@ -283,7 +283,7 @@ impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
             }
         }
 
-        Ok(read_size)
+        Ok(read_size.unwrap())
     }
 }
 
@@ -489,7 +489,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             })
         })
         .await;
-        Ok(read_size)
+        Ok(read_size.unwrap())
     }
 
     // Device -> Host
@@ -804,7 +804,7 @@ extern "C" fn usbd_cep_setup(status: u8) {
         if *out_state == EndpointState::Rx && read_ready {
             // MSS_USB_CIF_cep_rx_byte_count
             let len = (*pac::USB).INDEXED_CSR.DEVICE_EP0.COUNT0 & pac::COUNT0_REG_MASK as u16;
-            *out_state = EndpointState::RxComplete(len as usize);
+            *out_state = EndpointState::RxComplete(Ok(len as usize));
         } else if *in_state == EndpointState::Tx {
             *in_state = EndpointState::TxReadyForNext;
         } else if *in_state == EndpointState::TxLast {
@@ -826,7 +826,7 @@ extern "C" fn usbd_cep_setup(status: u8) {
 unsafe fn rx_complete(num: usize, received_count: u32) {
     critical_section::with(|_| {
         EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
-            EndpointState::RxComplete(received_count as usize);
+            EndpointState::RxComplete(Ok(received_count as usize));
     });
     if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
         .as_mut()
