@@ -1,9 +1,10 @@
+use aligned::{Aligned, A4};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
-use embassy_futures::{select, select::Either};
-use embassy_time::{Duration, Timer};
+use embassy_futures::select;
+use embassy_time::{with_timeout, Duration, Timer};
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
@@ -273,7 +274,6 @@ pub struct Channel<T: channel::Type, D: channel::Direction> {
 }
 
 impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D> {
-    // TODO these should probably have timeouts
     async fn control_in(
         &mut self,
         setup: &SetupPacket,
@@ -283,7 +283,12 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        log::trace!("USBH control_in: setup={:?}", setup);
+        log::trace!(
+            "USBH control_in: setup={:?}; setup_bytes={:x?}",
+            setup,
+            setup.as_bytes()
+        );
+
         unsafe {
             let mut aligned_buffer = buf.as_ptr();
             if aligned_buffer.align_offset(4) != 0 {
@@ -302,42 +307,53 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             critical_section::with(|_| {
                 EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
             });
-
-            pac::MSS_USBH_CIF_load_tx_fifo(
-                0,
-                // Could this cause alignment issues?
-                setup.as_bytes().as_ptr() as *mut core::ffi::c_void,
-                8,
-            );
-            // MSS_USBH_CIF_cep_set_setuppktrdy
-            (*pac::USB).ENDPOINT[0].TX_CSR |=
-                (pac::CSR0L_HOST_SETUP_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
         }
-
-        // TODO: Why on earth is this wait important?
-        // We hang otherwise
-        Timer::after(Duration::from_millis(50)).await;
-
-        let read_size = poll_fn(|cx| {
-            critical_section::with(|_| unsafe {
-                if let EndpointState::RxComplete(i) = EP_IN_CONTROLLER[0].as_ref().unwrap().state {
-                    EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
-                    EP_IN_CONTROLLER[0].as_mut().unwrap().waker = None;
-                    Poll::Ready(i)
-                } else {
-                    EP_IN_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
-                    Poll::Pending
+        let mut setup_buffer = Aligned::<A4, _>([0; 8]);
+        setup_buffer
+            .as_mut_slice()
+            .copy_from_slice(setup.as_bytes());
+        let read_size = loop {
+            if let Ok(res) = with_timeout(Duration::from_millis(1000), async {
+                unsafe {
+                    pac::MSS_USBH_CIF_load_tx_fifo(
+                        0,
+                        setup_buffer.as_ptr() as *mut core::ffi::c_void,
+                        8,
+                    );
+                    // MSS_USBH_CIF_cep_set_setuppktrdy
+                    (*pac::USB).ENDPOINT[0].TX_CSR |=
+                        (pac::CSR0L_HOST_SETUP_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
                 }
+
+                poll_fn(|cx| {
+                    critical_section::with(|_| unsafe {
+                        if let EndpointState::RxComplete(i) =
+                            EP_IN_CONTROLLER[0].as_ref().unwrap().state
+                        {
+                            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Idle;
+                            EP_IN_CONTROLLER[0].as_mut().unwrap().waker = None;
+                            Poll::Ready(i)
+                        } else {
+                            EP_IN_CONTROLLER[0].as_mut().unwrap().waker = Some(cx.waker().clone());
+                            Poll::Pending
+                        }
+                    })
+                })
+                .await
             })
-        })
-        .await?;
+            .await
+            {
+                break res;
+            } else {
+                log::warn!("control_in: timeout, retrying");
+            }
+        }?;
 
         if read_size > 10 {
             log::trace!("control_in: read={:x?}... length={}", &buf[..10], read_size);
         } else {
             log::trace!("control_in: read={:x?}", &buf[..read_size]);
         }
-
         Ok(read_size)
     }
 
@@ -364,13 +380,12 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             critical_section::with(|_| {
                 EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
             });
+            let mut setup_buffer = Aligned::<A4, _>([0; 8]);
+            setup_buffer
+                .as_mut_slice()
+                .copy_from_slice(setup.as_bytes());
 
-            pac::MSS_USBH_CIF_load_tx_fifo(
-                0,
-                // Could this cause alignment issues?
-                setup.as_bytes().as_ptr() as *mut core::ffi::c_void,
-                8,
-            );
+            pac::MSS_USBH_CIF_load_tx_fifo(0, setup_buffer.as_ptr() as *mut core::ffi::c_void, 8);
             // MSS_USBH_CIF_cep_set_setuppktrdy
             (*pac::USB).ENDPOINT[0].TX_CSR |=
                 (pac::CSR0L_HOST_SETUP_PKT_MASK | pac::CSR0L_HOST_TX_PKT_RDY_MASK) as u16;
@@ -564,6 +579,18 @@ pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {
     usbh_session_request: None, // Never called
 };
 
+fn ep_state_to_string(state: u8) -> &'static str {
+    match state as u32 {
+        pac::mss_usb_ep_state_t_MSS_USB_EP_TXN_SUCCESS => "Success",
+        pac::mss_usb_ep_state_t_MSS_USB_EP_NAK_TOUT => "NAK Timeout",
+        pac::mss_usb_ep_state_t_MSS_USB_EP_NO_RESPONSE => "No Response",
+        pac::mss_usb_ep_state_t_MSS_USB_EP_STALL_RCVD => "Stall Received",
+        pac::mss_usb_ep_state_t_MSS_USB_EP_XFR_SUCCESS => "Transfer Success",
+        pac::mss_usb_ep_state_t_MSS_USB_EP_ABORTED => "Aborted",
+        _ => "Unknown",
+    }
+}
+
 extern "C" fn usbh_cep(status: u8) {
     log::trace!("usbh_cep: Entering with status={}", status);
 
@@ -574,7 +601,10 @@ extern "C" fn usbh_cep(status: u8) {
 
         critical_section::with(|_| {
             if status != pac::mss_usb_ep_state_t_MSS_USB_EP_TXN_SUCCESS as u8 {
-                log::error!("usbh_cep: non-success status={}", status);
+                log::error!(
+                    "usbh_cep: non-success status: {}",
+                    ep_state_to_string(status)
+                );
                 if in_ep.state == EndpointState::Setup || in_ep.state == EndpointState::Rx {
                     in_ep.state = EndpointState::RxComplete(Err(ChannelError::BadResponse));
                     return;
@@ -643,7 +673,10 @@ extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
 extern "C" fn usbh_rx(ep_num: u8, status: u8) {
     log::trace!("usbh_rx: ep={}, status={}", ep_num, status);
     if status != 0 {
-        log::error!("usbh_rx: non-success status={}", status);
+        log::error!(
+            "usbh_rx: non-success status: {}",
+            ep_state_to_string(status)
+        );
         critical_section::with(|_| unsafe {
             let ep = EP_IN_CONTROLLER[ep_num as usize].as_mut().unwrap();
             let err = match status as u32 {

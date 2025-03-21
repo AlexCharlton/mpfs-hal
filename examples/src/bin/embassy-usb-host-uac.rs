@@ -30,7 +30,6 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     println!("Found device with speed = {:?}", speed);
 
     let enum_info = usbhost.enumerate_root(speed, 1).await.unwrap();
-    println!("Enumerated device: {:?}", enum_info);
 
     if let Ok(uac) = UacHandler::try_register(&usbhost, enum_info).await {
         println!("UAC registered");
