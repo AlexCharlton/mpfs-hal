@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use embassy_usb::handlers::{kbd::KbdHandler, UsbHostHandler};
+use embassy_usb::handlers::uac::UacHandler;
 use embassy_usb::host::UsbHostBusExt;
 use embassy_usb_driver::host::{DeviceEvent::Connected, UsbHostDriver};
 use mpfs_hal::Peripheral;
@@ -31,11 +31,17 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     let enum_info = usbhost.enumerate_root(speed, 1).await.unwrap();
     println!("Enumerated device: {:?}", enum_info);
+
+    if let Ok(uac) = UacHandler::try_register(&usbhost, enum_info).await {
+        println!("UAC registered");
+    } else {
+        println!("Failed to register UAC");
+    }
 }
 
 #[mpfs_hal::init_once]
 fn config() {
-    mpfs_hal::init_logger(log::LevelFilter::Trace);
+    mpfs_hal::init_logger(log::LevelFilter::Debug);
 }
 
 #[panic_handler]
