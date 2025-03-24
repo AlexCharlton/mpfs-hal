@@ -5,6 +5,8 @@ mod alloc;
 #[cfg(feature = "alloc")]
 use alloc::init_heap;
 
+use riscv::register::mstatus;
+
 mod critical_section_impl;
 critical_section::set_impl!(critical_section_impl::MPFSCriticalSection);
 
@@ -83,9 +85,11 @@ extern "C" fn u54_1() {
         // Rest of hardware initialization
         pac::clear_soft_interrupt();
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
-
         pac::PLIC_init();
         pac::__enable_irq();
+        // Enable FPU
+        mstatus::set_fs(mstatus::FS::Initial);
+
         // All other harts are put into wfi when they boot, so we can init_once from here
         init_once();
 
@@ -106,6 +110,8 @@ extern "C" fn u54_2() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
+        // Enable FPU
+        mstatus::set_fs(mstatus::FS::Initial);
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -121,6 +127,8 @@ extern "C" fn u54_3() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
+        // Enable FPU
+        mstatus::set_fs(mstatus::FS::Initial);
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -136,6 +144,8 @@ extern "C" fn u54_4() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
+        // Enable FPU
+        mstatus::set_fs(mstatus::FS::Initial);
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
