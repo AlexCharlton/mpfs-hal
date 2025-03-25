@@ -254,8 +254,12 @@ impl UsbHostDriver for UsbHost {
         };
         unsafe {
             // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
-            EP_IN_CONTROLLER[index] = ep_in;
-            EP_OUT_CONTROLLER[index] = ep_out;
+            if D::is_in() {
+                EP_IN_CONTROLLER[index] = ep_in;
+            }
+            if D::is_out() {
+                EP_OUT_CONTROLLER[index] = ep_out;
+            }
         }
         let mut channel = Channel {
             index,
@@ -469,7 +473,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         }
         Ok(())
     }
-    /// Send IN request of type other from control
+
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn,
@@ -536,13 +540,59 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         Ok(read)
     }
 
-    /// Send OUT request of type other from control
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsOut,
     {
+        // Based off of MSS_USBH_write_out_pipe
         log::trace!("USBH request_out");
-        todo!("request_out")
+
+        unsafe {
+            let mut aligned_buffer = buf.as_ptr();
+            let ep = EP_OUT_CONTROLLER[self.index].as_mut().unwrap();
+            if aligned_buffer.align_offset(4) != 0 {
+                log::warn!("request_out: data should be 32-bit aligned");
+                aligned_buffer = ep.buffer_addr()[..buf.len()].as_ptr();
+            }
+            critical_section::with(|_| {
+                ep.state = EndpointState::Tx;
+                if buf.len() > ep.ep.max_pkt_size as usize {
+                    ep.ep.txn_length = ep.ep.max_pkt_size as u32;
+                } else {
+                    ep.ep.txn_length = buf.len() as u32;
+                }
+                ep.ep.buf_addr = aligned_buffer as *mut u8;
+                ep.ep.xfr_length = buf.len() as u32;
+                ep.ep.xfr_count = 0;
+                ep.ep.txn_count = 0;
+            });
+
+            pac::MSS_USB_CIF_ep_write_pkt(
+                ep.ep.num,
+                ep.ep.buf_addr,
+                ep.ep.dma_enable,
+                ep.ep.dma_channel,
+                ep.ep.xfr_type,
+                ep.ep.xfr_length,
+                ep.ep.txn_length,
+            );
+        }
+
+        poll_fn(|cx| {
+            critical_section::with(|_| unsafe {
+                let ep = EP_OUT_CONTROLLER[self.index].as_mut().unwrap();
+                if let EndpointState::TxComplete = ep.state {
+                    ep.state = EndpointState::Idle;
+                    Poll::Ready(())
+                } else {
+                    ep.waker = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
+
+        Ok(buf.len())
     }
 }
 
@@ -668,6 +718,14 @@ extern "C" fn usbh_cep(status: u8) {
 
 extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
     log::trace!("usbh_tx_complete: ep={}, status={}", ep_num, status);
+
+    critical_section::with(|_| unsafe {
+        let ep = EP_OUT_CONTROLLER[ep_num as usize].as_mut().unwrap();
+        ep.state = EndpointState::TxComplete;
+        if let Some(waker) = ep.waker.as_mut() {
+            waker.wake_by_ref();
+        }
+    })
 }
 
 extern "C" fn usbh_rx(ep_num: u8, status: u8) {

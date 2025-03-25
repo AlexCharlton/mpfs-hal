@@ -11,11 +11,12 @@ mpfs-hal-embassy = { workspace = true, features = [] }
 aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
-embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
-embassy-usb = { workspace = true, features = [] }
+embassy-executor = { workspace = true, features = ["task-arena-size-81920"] }
+embassy-usb = { workspace = true, features = ["log"] }
 embassy-usb-driver = { workspace = true }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
+libm = "0.2"
 log = { workspace = true }
 midi-msg = { version = "0.8.0", default-features = false }
 static_cell = { workspace = true }
