@@ -445,7 +445,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                         0,
                         0,
                         mss_speed(),
-                        mss_interval(endpoint.interval_ms, speed(), endpoint.ep_type),
+                        mss_interval(speed(), endpoint.ep_type),
                         mss_transfer_type(endpoint.ep_type),
                     );
 
@@ -462,7 +462,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                         0,
                         0,
                         mss_speed(),
-                        mss_interval(endpoint.interval_ms, speed(), endpoint.ep_type),
+                        mss_interval(speed(), endpoint.ep_type),
                         mss_transfer_type(endpoint.ep_type),
                     );
 
@@ -607,6 +607,17 @@ fn speed() -> Speed {
 
 fn mss_speed() -> pac::mss_usb_device_speed_t {
     speed_to_mss_value(speed())
+}
+
+pub fn mss_interval(_speed: Speed, endpoint_type: EndpointType) -> u32 {
+    match endpoint_type {
+        EndpointType::Interrupt => 1,   // Every frame/microframe
+        EndpointType::Isochronous => 1, // Every frame/microframe
+        EndpointType::Bulk => {
+            32768 // Max NAK limit value
+        }
+        EndpointType::Control => 0, // Control endpoints don't use interval
+    }
 }
 
 //------------------------------------------------------
