@@ -7,8 +7,6 @@ use embassy_usb_driver::host::{DeviceEvent::Connected, UsbHostDriver};
 use mpfs_hal::Peripheral;
 use mpfs_hal_embassy::usb::host::UsbHost;
 
-extern crate mpfs_hal;
-
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");

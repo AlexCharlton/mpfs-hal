@@ -12,9 +12,6 @@ use midi_msg::{ChannelVoiceMsg, MidiMsg};
 use mpfs_hal::Peripheral;
 use mpfs_hal_embassy::usb::device::UsbDriver;
 
-#[macro_use]
-extern crate mpfs_hal;
-
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
@@ -63,7 +60,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
     };
 
-    println!("We're going to display incoming MIDI notes on the LEDs 🎶");
+    log::info!("We're going to display incoming MIDI notes on the LEDs 🎶");
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
@@ -123,6 +120,11 @@ async fn midi_display<'d, 'a>(
             class.write_packet(data).await?;
         }
     }
+}
+
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
 }
 
 #[mpfs_hal::init_once]

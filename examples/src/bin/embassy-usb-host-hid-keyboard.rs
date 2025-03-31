@@ -9,9 +9,6 @@ use embassy_usb_driver::host::{DeviceEvent::Connected, UsbHostDriver};
 use mpfs_hal::Peripheral;
 use mpfs_hal_embassy::usb::host::UsbHost;
 
-#[macro_use]
-extern crate mpfs_hal;
-
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
@@ -29,7 +26,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
     };
 
-    println!("Found device with speed = {:?}", speed);
+    log::info!("Found device with speed = {:?}", speed);
 
     let enum_info = usbhost.enumerate_root(speed, 1).await.unwrap();
     let mut kbd = KbdHandler::try_register(&usbhost, enum_info)
@@ -38,8 +35,13 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     loop {
         let result = kbd.wait_for_event().await;
-        println!("Got interrupt: {:?}", result);
+        log::info!("Got interrupt: {:?}", result);
     }
+}
+
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
 }
 
 #[mpfs_hal::init_once]

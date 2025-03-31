@@ -13,9 +13,6 @@ use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 
 use mpfs_hal::Peripheral;
 
-#[macro_use]
-extern crate mpfs_hal;
-
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let mut driver = mpfs_hal_embassy::usb::device::UsbDriver::take().unwrap();
@@ -82,7 +79,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
     };
 
-    println!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
+    log::info!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, hid_fut).await;
@@ -108,6 +105,11 @@ impl RequestHandler for MyRequestHandler {
         log::info!("Get idle rate for {:?}", id);
         None
     }
+}
+
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
 }
 
 #[mpfs_hal::init_once]

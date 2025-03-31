@@ -5,8 +5,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::join::join3;
 use embassy_time::Timer;
 
-#[macro_use]
-extern crate mpfs_hal;
 use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 use mpfs_hal::PeripheralRef;
 
@@ -23,7 +21,7 @@ const TX_PAK_ARP: [u8; 128] = [
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(spawner: embassy_executor::Spawner) {
-    println!("Initializing ethernet");
+    log::info!("Initializing ethernet");
     let device = EthernetDevice::<MAC0>::take().unwrap();
     device.init([0x02, 0x01, 0x02, 0x03, 0x04, 0x05]);
     spawner.spawn(run(device)).unwrap();
@@ -40,7 +38,7 @@ async fn run(device: &'static mut EthernetDevice<MAC0>) {
             loop {
                 if LINK_UP.load(Ordering::Relaxed) {
                     rx.receive(|buffer| {
-                        println!("Received packet of {} bytes", buffer.len());
+                        log::trace!("Received packet of {} bytes", buffer.len());
                     })
                     .await;
                     log::trace!("Received packet");
@@ -53,7 +51,7 @@ async fn run(device: &'static mut EthernetDevice<MAC0>) {
             loop {
                 if LINK_UP.load(Ordering::Relaxed) {
                     tx.send(TX_PAK_ARP.len(), |buf| {
-                        println!("Sending ARP");
+                        log::info!("Sending ARP");
                         buf.copy_from_slice(&TX_PAK_ARP);
                         buf[6..12].copy_from_slice(&mac_addr);
                     });
@@ -67,7 +65,7 @@ async fn run(device: &'static mut EthernetDevice<MAC0>) {
                 let link_state = device.link_state();
                 if link_state.is_up() != previous_link_state {
                     LINK_UP.store(link_state.is_up(), Ordering::Relaxed);
-                    println!(
+                    log::info!(
                         "Link {:?}; Link speed: {:?}",
                         link_state,
                         device.link_speed()
@@ -78,6 +76,11 @@ async fn run(device: &'static mut EthernetDevice<MAC0>) {
         },
     )
     .await;
+}
+
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
 }
 
 #[mpfs_hal::init_once]
