@@ -15,7 +15,7 @@ features = []
 [features]
 default = ["alloc", "print", "log", "log-colors", "beaglev-fire"]
 debug-logs = ["print"]
-log = ["print", "dep:log"]
+log = ["print", "dep:log", "embassy-sync", "alloc"]
 log-colors = []
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
@@ -28,6 +28,7 @@ mpfs-hal-procmacros = { workspace = true }
 critical-section = { workspace = true }
 embassy-embedded-hal = { workspace = true }
 embassy-net-driver = { workspace = true }
+embassy-sync = { workspace = true, optional = true }
 embedded-alloc = { workspace = true, optional = true }
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
