@@ -805,7 +805,18 @@ extern "C" fn usbh_dma_handler(
         status,
         dma_addr_val
     );
-    // TODO: Handle Bulk RX, TX
+    if dma_dir == pac::mss_usb_dma_dir_t_MSS_USB_DMA_READ {
+        // For some reason, this is the TX direction
+        unsafe {
+            // TODO: Handle ZLPs properly
+
+            // This triggers a TX packet ready interrupt
+            (*pac::USB).ENDPOINT[ep_num as usize].TX_CSR |=
+                pac::TxCSRL_REG_EPN_TX_PKT_RDY_MASK as u16;
+        }
+    } else {
+        // TODO Bulk Rx
+    }
 }
 
 extern "C" fn usbh_connect(
