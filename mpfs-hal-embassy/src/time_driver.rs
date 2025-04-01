@@ -9,8 +9,11 @@ use mpfs_hal::pac;
 // Modelled off https://github.com/embassy-rs/embassy/blob/main/embassy-rp/src/time_driver.rs
 // and https://github.com/polarfire-soc/polarfire-soc-bare-metal-examples/blob/main/driver-examples/mss/mss-timer/mpfs-timer-example/src/application/hart1/u54_1.c
 
-const TIMER_VS_MTIME_RATIO: u64 =
-    pac::LIBERO_SETTING_MSS_APB_AHB_CLK as u64 / pac::LIBERO_SETTING_MSS_RTC_TOGGLE_CLK as u64;
+// const TIMER_VS_MTIME_RATIO: u64 =
+// pac::LIBERO_SETTING_MSS_APB_AHB_CLK as u64 / pac::LIBERO_SETTING_MSS_RTC_TOGGLE_CLK as u64;
+
+const MCYCLE_VS_TIMER_RATIO: u64 =
+    pac::LIBERO_SETTING_MSS_SYSTEM_CLK as u64 / pac::LIBERO_SETTING_MSS_APB_AHB_CLK as u64;
 
 struct TimeDriver {
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
@@ -22,7 +25,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 
 impl Driver for TimeDriver {
     fn now(&self) -> u64 {
-        unsafe { pac::readmtime() }
+        unsafe { pac::readmcycle() }
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
@@ -68,7 +71,8 @@ impl TimeDriver {
     }
 
     fn _set_alarm(&self, interval: u64) {
-        let counter = interval.saturating_mul(TIMER_VS_MTIME_RATIO);
+        //let counter = interval.saturating_mul(TIMER_VS_MTIME_RATIO);
+        let counter = interval / MCYCLE_VS_TIMER_RATIO;
         let load_value_u = (counter >> 32) as u32;
         let load_value_l = counter as u32;
         unsafe {
