@@ -15,7 +15,6 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     usbhost.start();
 
     log::info!("Detecting device");
-    // Wait for root-port to detect device
     let speed = loop {
         match usbhost.wait_for_device_event().await {
             Connected(speed) => break speed,
@@ -26,7 +25,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Found device with speed = {:?}", speed);
     let enum_info = usbhost.enumerate_root(speed, 1).await.unwrap();
 
-    if let Ok(mut uac) = UacHandler::try_register(&usbhost, enum_info, speed).await {
+    if let Ok(mut uac) = UacHandler::try_register(&usbhost, enum_info).await {
         log::info!("UAC registered");
         let sampling_freq = uac
             .get_sampling_freq(uac.input_terminal().clock_source_id())
@@ -41,7 +40,8 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
             .await;
         log::info!("[UAC] Terminal Name: {:?}", terminal_name);
 
-        uac.output_stream(generate_sine_wave).await.unwrap();
+        let mut out = uac.output().unwrap();
+        out.output_stream(generate_sine_wave).await.unwrap();
     } else {
         log::error!("Failed to register UAC");
     }
