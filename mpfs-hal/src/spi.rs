@@ -237,17 +237,23 @@ impl<T: SpiPeripheral> embedded_hal::spi::SpiDevice for Spi<T> {
                     Operation::Write(data) => {
                         self.write(data)?;
                     }
-                    Operation::Read(_data) => {
-                        todo!()
+                    Operation::Read(data) => {
+                        self.read(data)?;
                     }
-                    Operation::Transfer(_tx, _rx) => {
-                        todo!()
+                    Operation::Transfer(rx, tx) => {
+                        self.transfer(rx, tx)?;
                     }
-                    Operation::TransferInPlace(_data) => {
-                        todo!()
+                    Operation::TransferInPlace(data) => {
+                        self.transfer_in_place(data)?;
                     }
-                    Operation::DelayNs(_ns) => {
-                        todo!()
+                    Operation::DelayNs(ns) => {
+                        let now = pac::readmcycle();
+                        // Convert ns to ticks: ns * (600 MHz / 1000 MHz) = ns * 0.6
+                        // Round up to ensure we wait at least the requested time
+                        let ticks = (*ns * 3 + 4) / 5; // Equivalent to ceil(ns * 0.6)
+                        while pac::readmcycle() < now + ticks as u64 {
+                            core::hint::spin_loop();
+                        }
                     }
                 }
             }
@@ -268,9 +274,8 @@ impl<T: SpiPeripheral> Spi<T> {
             return Ok(());
         }
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
-
         log::debug!(
-            "Writing to SPI {:x?}. Buffer aligned: {:?}. Byte count: {}",
+            "Writing to SPI {:x?}. Buffer aligned: {}; Byte count: {}",
             data,
             buffer_aligned,
             data.len()
@@ -346,6 +351,325 @@ impl<T: SpiPeripheral> Spi<T> {
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
             }
         }
+        Ok(())
+    }
+
+    fn read(&mut self, data: &mut [u8]) -> Result<(), SpiError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
+
+        log::debug!(
+            "Reading from SPI. Buffer aligned: {}; Byte count: {}",
+            buffer_aligned,
+            data.len()
+        );
+
+        unsafe {
+            let spi = &mut (*(*self.peripheral.address()).hw_reg);
+            let word_count = if buffer_aligned { data.len() / 4 } else { 0 } as u32;
+            if word_count > 0 {
+                let words = data.as_ptr() as *mut u32;
+
+                spi.FRAMESIZE = 32;
+                spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
+                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                    | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
+                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
+                // Flush the receive FIFO
+                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
+                    let _ = spi.RX_DATA;
+                }
+
+                for i in 0..(word_count as usize) {
+                    // Wait until transmit FIFO is not full
+                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    spi.TX_DATA = 0xFFFFFFFF;
+                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    *words.add(i) = spi.RX_DATA.to_be();
+                }
+
+                // Wait until the transfer is done
+                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                    core::hint::spin_loop();
+                }
+
+                // Flush the FIFOs
+                spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
+                // Disable the SPI
+                spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+            }
+
+            let data = &mut data[word_count as usize * 4..];
+
+            if !data.is_empty() {
+                spi.FRAMESIZE = 8;
+                spi.FRAMESUP = data.len() as u32 & pac::spi::BYTESUPPER_MASK;
+                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                    | (((data.len() as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
+                        & pac::spi::TXRXDFCOUNT_MASK);
+                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
+                // Flush the receive FIFO
+                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
+                    let _ = spi.RX_DATA;
+                }
+
+                for i in 0..data.len() {
+                    // Wait until transmit FIFO is not full
+                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    spi.TX_DATA = 0xFFFFFFFF;
+                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    data[i] = spi.RX_DATA as u8;
+                }
+
+                // Wait until the transfer is done
+                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                    core::hint::spin_loop();
+                }
+
+                // Flush the FIFOs
+                spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
+                // Disable the SPI
+                spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), SpiError> {
+        if read.is_empty() && write.is_empty() {
+            return Ok(());
+        }
+        let buffer_aligned: bool = write.as_ptr().align_offset(4) == 0
+            && read.as_ptr().align_offset(4) == 0
+            && (write.len() > 3 || read.len() > 3);
+
+        log::debug!(
+            "Transferring from SPI. Read len: {}; Write: {:x?}; Buffer aligned: {}",
+            read.len(),
+            write,
+            buffer_aligned
+        );
+
+        let total_bytes = read.len().max(write.len());
+        let mut tx_bytes_sent = 0;
+        let mut rx_bytes_received = 0;
+
+        unsafe {
+            let spi = &mut (*(*self.peripheral.address()).hw_reg);
+            let word_count = if buffer_aligned { total_bytes / 4 } else { 0 } as u32;
+            if word_count > 0 {
+                let tx_words = write.as_ptr() as *mut u32;
+                let rx_words = read.as_ptr() as *mut u32;
+
+                spi.FRAMESIZE = 32;
+                spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
+                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                    | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
+                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
+                // Flush the receive FIFO
+                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
+                    let _ = spi.RX_DATA;
+                }
+
+                for i in 0..(word_count as usize) {
+                    // Wait until transmit FIFO is not full
+                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    if tx_bytes_sent + 4 <= write.len() {
+                        spi.TX_DATA = (*tx_words.add(i)).to_be();
+                        tx_bytes_sent += 4;
+                    } else if tx_bytes_sent < write.len() {
+                        let mut tx_data = 0x0;
+                        let tx_bytes_remaining = write.len() - tx_bytes_sent;
+                        while tx_bytes_sent < write.len() {
+                            tx_data <<= 8;
+                            tx_data |= write[tx_bytes_sent] as u32;
+                            tx_bytes_sent += 1;
+                        }
+                        for _ in 0..(4 - tx_bytes_remaining) {
+                            tx_data <<= 8;
+                            tx_data |= 0xFF;
+                        }
+                        spi.TX_DATA = tx_data;
+                    } else {
+                        spi.TX_DATA = 0xFFFFFFFF;
+                    }
+                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    let word = spi.RX_DATA;
+                    if rx_bytes_received + 4 <= read.len() {
+                        *rx_words.add(i) = word.to_be();
+                        rx_bytes_received += 4;
+                    } else if rx_bytes_received < read.len() {
+                        let rx_bytes_remaining = read.len() - rx_bytes_received;
+                        for i in 0..(4 - rx_bytes_remaining) {
+                            read[rx_bytes_received] = (word >> (8 * i)) as u8;
+                            rx_bytes_received += 1;
+                        }
+                    }
+                }
+
+                // Wait until the transfer is done
+                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                    core::hint::spin_loop();
+                }
+
+                // Flush the FIFOs
+                spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
+                // Disable the SPI
+                spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+            }
+
+            let write = &write[tx_bytes_sent..];
+            let read = &mut read[rx_bytes_received..];
+            let remaining_bytes = read.len().max(write.len());
+
+            if remaining_bytes > 0 {
+                spi.FRAMESIZE = 8;
+                spi.FRAMESUP = remaining_bytes as u32 & pac::spi::BYTESUPPER_MASK;
+                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                    | (((remaining_bytes as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
+                        & pac::spi::TXRXDFCOUNT_MASK);
+                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
+                // Flush the receive FIFO
+                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
+                    let _ = spi.RX_DATA;
+                }
+
+                for i in 0..remaining_bytes {
+                    // Wait until transmit FIFO is not full
+                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    if i < write.len() {
+                        spi.TX_DATA = write[i] as u32;
+                    }
+                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    if i < read.len() {
+                        read[i] = spi.RX_DATA as u8;
+                    }
+                }
+
+                // Wait until the transfer is done
+                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                    core::hint::spin_loop();
+                }
+
+                // Flush the FIFOs
+                spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
+                // Disable the SPI
+                spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), SpiError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
+        log::debug!(
+            "Transferring in place, buffer aligned? {}; Data: {:x?}",
+            buffer_aligned,
+            data
+        );
+
+        unsafe {
+            let spi = &mut (*(*self.peripheral.address()).hw_reg);
+            let word_count = if buffer_aligned { data.len() / 4 } else { 0 } as u32;
+
+            if word_count > 0 {
+                let words = data.as_ptr() as *mut u32;
+
+                spi.FRAMESIZE = 32;
+                spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
+                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                    | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
+                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
+                // Flush the receive FIFO
+                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
+                    let _ = spi.RX_DATA;
+                }
+
+                for i in 0..(word_count as usize) {
+                    // Wait until transmit FIFO is not full
+                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    spi.TX_DATA = (*words.add(i)).to_be();
+                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    *words.add(i) = spi.RX_DATA.to_be();
+                }
+
+                // Wait until the transfer is done
+                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                    core::hint::spin_loop();
+                }
+
+                // Flush the FIFOs
+                spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
+                // Disable the SPI
+                spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+            }
+
+            let data = &mut data[word_count as usize * 4..];
+
+            if !data.is_empty() {
+                spi.FRAMESIZE = 8;
+                spi.FRAMESUP = data.len() as u32 & pac::spi::BYTESUPPER_MASK;
+                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                    | (((data.len() as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
+                        & pac::spi::TXRXDFCOUNT_MASK);
+                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
+                // Flush the receive FIFO
+                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
+                    let _ = spi.RX_DATA;
+                }
+
+                for i in 0..data.len() {
+                    // Wait until transmit FIFO is not full
+                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    spi.TX_DATA = data[i] as u32;
+                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                        core::hint::spin_loop();
+                    }
+                    data[i] = spi.RX_DATA as u8;
+                }
+
+                // Wait until the transfer is done
+                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                    core::hint::spin_loop();
+                }
+
+                // Flush the FIFOs
+                spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
+                // Disable the SPI
+                spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+            }
+        }
+
         Ok(())
     }
 }
