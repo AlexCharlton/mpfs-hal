@@ -26,8 +26,8 @@ pub use uart::*;
 mod usb;
 pub use usb::*;
 
-mod qspi;
-pub use qspi::*;
+mod spi;
+pub use spi::*;
 
 #[inline]
 pub fn hart_id() -> usize {

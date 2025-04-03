@@ -32,6 +32,7 @@ pub use logger::init_logger;
 pub mod ethernet;
 pub mod gpio;
 pub mod qspi;
+pub mod spi;
 pub mod uart;
 pub mod usb;
 
