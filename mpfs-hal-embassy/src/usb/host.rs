@@ -6,7 +6,8 @@ use core::task::{Poll, Waker};
 use embassy_futures::select;
 use embassy_time::{with_timeout, Duration, Timer};
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
+    channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel,
+    UsbHostDriver,
 };
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
@@ -479,6 +480,11 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             }
         }
         Ok(())
+    }
+
+    /// Configure the timeouts of this channel
+    async fn set_timeout(&mut self, _timeout: TimeoutConfig) {
+        log::warn!("set_timeout: not implemented");
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>

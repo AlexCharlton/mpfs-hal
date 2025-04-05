@@ -28,8 +28,9 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     log::info!("Found device with speed = {:?}", speed);
 
-    let enum_info = usbhost.enumerate_root(speed, 1).await.unwrap();
-    let mut kbd = KbdHandler::try_register(&usbhost, enum_info)
+    let enum_info = usbhost.enumerate_root_bare(speed, 1).await.unwrap();
+    log::info!("Enumerated device: {:?}", &enum_info);
+    let mut kbd = KbdHandler::try_register(&usbhost, &enum_info)
         .await
         .expect("Couldn't register keyboard");
 
