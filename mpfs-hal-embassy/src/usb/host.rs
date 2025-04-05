@@ -293,8 +293,8 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             setup.as_bytes()
         );
 
+        let mut aligned_buffer = buf.as_ptr();
         unsafe {
-            let mut aligned_buffer = buf.as_ptr();
             if aligned_buffer.align_offset(4) != 0 {
                 let e = EP_IN_CONTROLLER[0].as_mut().unwrap();
                 log::warn!("control_in: data should be 32-bit aligned");
@@ -352,6 +352,13 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                 log::warn!("control_in: timeout, retrying");
             }
         }?;
+
+        if buf.as_ptr() != aligned_buffer {
+            unsafe {
+                let e = EP_IN_CONTROLLER[self.index].as_mut().unwrap();
+                buf.copy_from_slice(&e.buffer_addr()[..buf.len()]);
+            }
+        }
 
         if read_size > 10 {
             log::trace!("control_in: read={:x?}... length={}", &buf[..10], read_size);
@@ -482,8 +489,8 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
 
         // based off MSS_USBH_read_in_pipe
 
+        let mut aligned_buffer = buf.as_ptr();
         unsafe {
-            let mut aligned_buffer = buf.as_ptr();
             let ep = EP_IN_CONTROLLER[self.index].as_mut().unwrap();
             if aligned_buffer.align_offset(4) != 0 {
                 log::warn!("request_in: data should be 32-bit aligned");
@@ -535,6 +542,14 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             })
         })
         .await?;
+
+        if buf.as_ptr() != aligned_buffer {
+            unsafe {
+                let e = EP_IN_CONTROLLER[self.index].as_mut().unwrap();
+                buf.copy_from_slice(&e.buffer_addr()[..buf.len()]);
+            }
+        }
+
         log::trace!("USBH request_in: read={:x?}", &buf[..read]);
 
         Ok(read)
