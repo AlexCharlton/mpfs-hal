@@ -454,7 +454,7 @@ mod beaglev_fire {
     /// To be called before using any GPIO pins
     pub fn init() {
         unsafe {
-            // GPIO2 initialization
+            // GPIO2 initialization (Only needed for interrupts)
             pac::MSS_GPIO_init(pac::GPIO2_LO);
             // Route GPIO2 interrupts to the PLIC (Rather than GPIO0 and GPIO1)
             (*pac::SYSREG).GPIO_INTERRUPT_FAB_CR = 0xFFFFFFFF;

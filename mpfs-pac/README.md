@@ -13,6 +13,8 @@ You should almost certainly use this with the [mpfs-hal](https://github.com/mpfs
 - `u54_3`
 - `u54_4`
 
+Use the `MPFS_RESERVED_MEMORY_SIZE` environment variable to set the size of the reserved memory region. This amount of memory is reserved at the end of the address space, and is meant to be used by the application for fixed-address, non-heap memory. Defaults to 0x0.
+
 
 ## TODO
 There's plenty of functionality in platform that isn't yet exposed, either because they are static functions, or defines that aren't recognized by bindgen. I also haven't added all headers to the wrapper, but most MSS peripherals are there.

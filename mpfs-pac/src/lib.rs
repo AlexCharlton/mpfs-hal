@@ -57,3 +57,17 @@ pub fn last_address() -> usize {
 
     base_address + size_ram
 }
+
+pub fn heap_start() -> usize {
+    last_linked_address()
+}
+
+pub fn heap_end() -> usize {
+    let reserved_memory_size = match option_env!("MPFS_RESERVED_MEMORY_SIZE") {
+        Some(size) => usize::from_str_radix(size, 16)
+            .expect("MPFS_RESERVED_MEMORY_SIZE must be a valid hexadecimal number"),
+        None => 0x0,
+    };
+
+    last_address() - reserved_memory_size
+}
