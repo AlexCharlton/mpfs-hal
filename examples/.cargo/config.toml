@@ -3,3 +3,6 @@ target = "riscv64gc-unknown-none-elf"
 
 [target.riscv64gc-unknown-none-elf]
 rustflags = ["-C", "link-arg=-Tlinker.ld", "-C", "link-arg=--gc-sections"]
+
+[env]
+MPFS_RESERVED_MEMORY_SIZE = "400000" # 4MB for dpi-display

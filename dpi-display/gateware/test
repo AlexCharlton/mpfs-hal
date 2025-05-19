@@ -1,0 +1,50 @@
+#!/bin/bash
+
+set -e
+
+PROJECT_DIR=$(dirname "$(readlink -f "$0")")
+TESTBENCH_DIR=$PROJECT_DIR/testbench
+OUT_DIR=$PROJECT_DIR/DPI_DISPLAY/build/test
+mkdir -p $OUT_DIR
+cd $OUT_DIR
+
+SRC_DIR=$PROJECT_DIR/DPI_DISPLAY/HDL
+
+if [ "$1" = "cape" ]; then
+    iverilog -g2012 -Wall -I$SRC_DIR -o design.vpp $SRC_DIR/display.v $SRC_DIR/spi.v $SRC_DIR/CAPE.v
+    echo "Design compiled"
+    exit 0
+fi
+
+ret=0
+
+if [ "$1" = "fast" ]; then
+    iverilog -g2012 -Wall -I$SRC_DIR -I$TESTBENCH_DIR -o design.vpp $TESTBENCH_DIR/display_sim.v $SRC_DIR/display.v  $SRC_DIR/spi.v
+
+    set +e
+    vvp -N design.vpp
+    ret=$?
+else
+    verilator --cc --exe --build \
+        -Wno-WIDTHEXPAND \
+        -Wno-WIDTHTRUNC \
+        -Wno-INITIALDLY \
+        -Wno-UNOPTFLAT \
+        --timing \
+        --trace \
+        --assert \
+        -I$SRC_DIR \
+        -I$TESTBENCH_DIR \
+        $TESTBENCH_DIR/display_tb.v \
+        $SRC_DIR/display.v \
+        $SRC_DIR/spi.v \
+        $TESTBENCH_DIR/display_sim.cpp
+
+    set +e
+    ./obj_dir/Vdisplay_tb
+    ret=$?
+fi
+
+
+surfer $OUT_DIR/display_tb.vcd >/dev/null 2>&1 &
+exit $ret
