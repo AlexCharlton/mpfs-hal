@@ -3,6 +3,7 @@ pub use beaglev_fire::*;
 #[cfg(feature = "beaglev-fire")]
 mod beaglev_fire {
     use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+    use gpio::GpioInterrupt;
     use mpfs_hal::{gpio, pac, qspi, Peripheral};
 
     pub fn init() -> (
@@ -40,8 +41,7 @@ mod beaglev_fire {
                         pin: gpio::Pin::new(
                             12,
                             gpio::GpioPeripheral::Mss(pac::GPIO0_LO),
-                            255, // Never used
-                            255, // Never used
+                            gpio::Interrupt::NONE,
                         ),
                     })
                 }
@@ -53,8 +53,7 @@ mod beaglev_fire {
                 pin: gpio::Pin::new(
                     12,
                     gpio::GpioPeripheral::Mss(pac::GPIO0_LO),
-                    255, // Never used
-                    255, // Never used
+                    gpio::Interrupt::NONE,
                 ),
             }
         }
@@ -91,7 +90,8 @@ mod beaglev_fire {
     impl Peripheral for SdDetect {
         fn take() -> Option<Self> {
             critical_section::with(|_| unsafe {
-                if SD_DETECT_TAKEN {
+                let interrupt = gpio::GPIO1_17_OR_GPIO2_31_INT::take();
+                if SD_DETECT_TAKEN || interrupt.is_none() {
                     None
                 } else {
                     SD_DETECT_TAKEN = true;
@@ -99,8 +99,7 @@ mod beaglev_fire {
                         pin: gpio::Pin::new(
                             31,
                             gpio::GpioPeripheral::Mss(pac::GPIO2_LO),
-                            gpio::SD_DETECT_INTERRUPT_IDX,
-                            255,
+                            interrupt.unwrap().address(),
                         ),
                     })
                 }
@@ -112,8 +111,7 @@ mod beaglev_fire {
                 pin: gpio::Pin::new(
                     31,
                     gpio::GpioPeripheral::Mss(pac::GPIO2_LO),
-                    gpio::SD_DETECT_INTERRUPT_IDX,
-                    255,
+                    gpio::GPIO1_17_OR_GPIO2_31_INT::steal().address(),
                 ),
             }
         }

@@ -65,6 +65,7 @@ fn init_once() {
             pac::MPFS_HAL_FIRST_HART as u8,
             pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
         );
+        pac::mss_enable_fabric();
 
         #[cfg(feature = "alloc")]
         init_heap();
