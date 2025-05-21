@@ -55,7 +55,7 @@ static mut GPIO_INTERRUPTS: [GpioInterruptData; NUM_INTERRUPTS] = [const {
 }; NUM_INTERRUPTS];
 
 #[repr(u8)]
-#[derive(Default, Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 #[doc(hidden)]
 pub enum InterruptTrigger {
     #[default]
@@ -144,7 +144,7 @@ macro_rules! impl_gpio_interrupt {
         #[no_mangle]
         extern "C" fn $interrupt_handler() -> u8 {
             let interrupt = unsafe { &mut GPIO_INTERRUPTS[$interrupt_idx] };
-            log::trace!("GPIO interrupt triggered: {:?}", interrupt);
+            log::trace!("GPIO interrupt {} triggered: {:?}", $interrupt_idx, interrupt);
             if let Some(waker) = interrupt.waker.take() {
                 interrupt.triggered = true;
                 waker.wake();
@@ -565,6 +565,12 @@ impl Pin {
         }
     }
 
+    fn clear_triggered(&self) {
+        critical_section::with(|_| unsafe {
+            GPIO_INTERRUPTS[self.interrupt.interrupt_idx as usize].triggered = false;
+        });
+    }
+
     fn clear_interrupt(peripheral: GpioPeripheral, number: u8) {
         unsafe {
             match peripheral {
@@ -672,6 +678,7 @@ impl embedded_hal::digital::InputPin for Input {
 #[doc(hidden)]
 pub struct InputFuture {
     pin: Pin,
+    trigger: InterruptTrigger,
 }
 
 impl InputFuture {
@@ -681,7 +688,10 @@ impl InputFuture {
         });
         pin.config_input(interrupt_trigger);
         pin.enable_interrupt();
-        Self { pin }
+        Self {
+            pin,
+            trigger: interrupt_trigger,
+        }
     }
 }
 
@@ -695,6 +705,20 @@ impl Future for InputFuture {
         });
 
         if trigger {
+            if ((self.trigger == InterruptTrigger::EdgePositive
+                || self.trigger == InterruptTrigger::LevelHigh)
+                && !self.as_mut().pin.is_high())
+                || ((self.trigger == InterruptTrigger::EdgeNegative
+                    || self.trigger == InterruptTrigger::LevelLow)
+                    && self.as_mut().pin.is_high())
+            {
+                // The interrupt was triggered, but the pin is not in the correct state
+                // so we reset the interrupt and wait for the next one
+                self.as_mut().pin.clear_triggered();
+                self.as_mut().pin.enable_interrupt();
+                return Poll::Pending;
+            }
+            self.as_mut().pin.clear_triggered();
             Pin::clear_interrupt(self.as_mut().pin.peripheral, self.as_mut().pin.number);
             Pin::disable_interrupt(self.as_mut().pin.peripheral, self.as_mut().pin.number);
             Poll::Ready(Ok(()))
@@ -797,7 +821,12 @@ macro_rules! impl_gpio_pin {
                             $PIN_TAKEN = true;
                             if $peripheral.is_gpio2() {
                                 // Enable GPIO2 interrupt
-                                (*$crate::pac::SYSREG).GPIO_INTERRUPT_FAB_CR = 1 << $num;
+                                (*$crate::pac::SYSREG).GPIO_INTERRUPT_FAB_CR |= 1 << $num;
+                                log::trace!(
+                                    "Enabled GPIO2 interrupt for pin {}; {:x?}",
+                                    $num,
+                                    (*$crate::pac::SYSREG).GPIO_INTERRUPT_FAB_CR
+                                );
                             }
                             Some(Self { _private: () })
                         } else {

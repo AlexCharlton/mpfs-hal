@@ -2,7 +2,7 @@
 #![no_main]
 
 use dpi_display::*;
-use embedded_hal::digital::{InputPin, OutputPin};
+use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use mpfs_hal::{pac, Peripheral};
 
@@ -58,11 +58,14 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let mut buffer1_ready = Buffer1Ready::take().unwrap();
 
     loop {
-        buffer0_ready.set_high().unwrap();
+        // Always mark previous buffer as not ready before setting current buffer ready
         buffer1_ready.set_low().unwrap();
+        buffer0_ready.set_high().unwrap();
+        log::info!("Buffer 0 ready");
         embassy_time::Timer::after_secs(1).await;
         buffer0_ready.set_low().unwrap();
         buffer1_ready.set_high().unwrap();
+        log::info!("Buffer 1 ready");
         embassy_time::Timer::after_secs(1).await;
     }
 }
@@ -77,14 +80,10 @@ async fn hart3_main(_spawner: embassy_executor::Spawner) {
     let mut buffer0_locked = Buffer0Locked::take().unwrap();
     let mut buffer1_locked = Buffer1Locked::take().unwrap();
     loop {
-        while buffer0_locked.is_low().unwrap() {
-            core::hint::spin_loop();
-        }
+        let _ = buffer0_locked.wait_for_high().await;
         log::info!("Buffer 0 locked");
-        while buffer0_locked.is_high().unwrap() {
-            core::hint::spin_loop();
-        }
-        log::info!("Buffer 0 unlocked");
+        let _ = buffer1_locked.wait_for_high().await;
+        log::info!("Buffer 1 locked");
     }
 }
 
