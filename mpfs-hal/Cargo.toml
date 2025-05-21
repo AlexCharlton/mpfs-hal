@@ -13,13 +13,24 @@ default-target = "riscv64gc-unknown-none-elf"
 features = []
 
 [features]
-default = ["alloc", "print", "log", "log-colors", "beaglev-fire"]
+default = [
+    "alloc",
+    "print",
+    "log",
+    "log-colors",
+    "beaglev-fire",
+    "beaglev-fire-default-cape",
+]
 debug-logs = ["print"]
 log = ["print", "dep:log", "embassy-sync", "alloc"]
 log-colors = []
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
 beaglev-fire = ["mpfs-pac/beaglev-fire"]
+# Capes
+beaglev-fire-default-cape = ["beaglev-fire"]
+beaglev-fire-gpio-cape = ["beaglev-fire"]
+beaglev-fire-no-cape = ["beaglev-fire"]
 
 [dependencies]
 mpfs-pac = { workspace = true }
@@ -35,5 +46,6 @@ embedded-hal-async = { workspace = true }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 log = { workspace = true, optional = true }
+mutually_exclusive_features = "0.1.0"
 paste = "1.0"
 riscv = "0.12"
