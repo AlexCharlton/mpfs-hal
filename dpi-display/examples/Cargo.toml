@@ -5,20 +5,18 @@ edition = "2021"
 publish = false
 
 [dependencies]
-mpfs-hal = { workspace = true, features = [
+mpfs-hal = { path = "../../mpfs-hal", default-features = false, features = [
     "alloc",
     "print",
     "log",
     "log-colors",
     "beaglev-fire-no-cape",
 ] }
-mpfs-hal-embassy = { workspace = true }
-dpi-display = { workspace = true }
+mpfs-hal-embassy = { path = "../../mpfs-hal-embassy" }
+dpi-display = { path = "../" }
 
-aligned = { workspace = true }
-critical-section = { workspace = true }
-embassy-time = { workspace = true }
-embassy-executor = { workspace = true, features = ["task-arena-size-81920"] }
-embedded-hal = { workspace = true }
-embedded-hal-async = { workspace = true }
-log = { workspace = true }
+embassy-time = { path = "../../../external/embassy/embassy-time" }
+embassy-executor = { path = "../../../external/embassy/embassy-executor" }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+log = { version = "0.4" }
