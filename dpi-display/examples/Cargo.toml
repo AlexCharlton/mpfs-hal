@@ -1,0 +1,23 @@
+[package]
+name = "dpi-display-examples"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+mpfs-hal = { workspace = true, features = [
+    "alloc",
+    "print",
+    "log",
+    "log-colors",
+    "beaglev-fire-no-cape",
+] }
+mpfs-hal-embassy = { workspace = true }
+dpi-display = { workspace = true }
+
+aligned = { workspace = true }
+critical-section = { workspace = true }
+embassy-time = { workspace = true }
+embassy-executor = { workspace = true, features = ["task-arena-size-81920"] }
+embedded-hal = { workspace = true }
+log = { workspace = true }

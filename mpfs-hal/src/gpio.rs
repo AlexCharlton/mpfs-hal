@@ -773,13 +773,9 @@ macro_rules! impl_gpio_pin {
             }
         }
 
-        impl GpioPin for $PIN {
-            fn address(&self) -> Pin {
-                Pin {
-                    number: $num,
-                    peripheral: $peripheral,
-                    interrupt: $crate::gpio::Interrupt::NONE,
-                }
+        impl $crate::gpio::GpioPin for $PIN {
+            fn address(&self) -> $crate::gpio::Pin {
+                $crate::gpio::Pin::new($num, $peripheral, $crate::gpio::Interrupt::NONE)
             }
         }
     };
@@ -818,11 +814,9 @@ macro_rules! impl_gpio_pin {
 
         impl $crate::gpio::GpioPin for $PIN {
             fn address(&self) -> $crate::gpio::Pin {
-                $crate::gpio::Pin {
-                    number: $num,
-                    peripheral: $peripheral,
-                    interrupt: unsafe { $interrupt::steal().address() },
-                }
+                $crate::gpio::Pin::new($num, $peripheral, unsafe {
+                    $crate::gpio::GpioInterrupt::address(&$interrupt::steal())
+                })
             }
         }
     };
@@ -831,7 +825,7 @@ macro_rules! impl_gpio_pin {
 #[macro_export]
 macro_rules! impl_input_peripheral {
     ($perif:ident, $pin:ident) => {
-        paste! {
+        paste::paste! {
             impl_input_peripheral!($perif, [<$perif _TAKEN>], $pin);
         }
     };
@@ -839,7 +833,7 @@ macro_rules! impl_input_peripheral {
     ($PERIF:ident, $PERIF_TAKEN:ident, $pin:ident) => {
         #[allow(non_camel_case_types)]
         pub struct $PERIF {
-            pub pin: Input,
+            pub pin: $crate::gpio::Input,
         }
         #[allow(non_upper_case_globals)]
         static mut $PERIF_TAKEN: bool = false;
@@ -910,7 +904,7 @@ macro_rules! impl_input_peripheral {
 #[macro_export]
 macro_rules! impl_output_peripheral {
     ($perif:ident, $pin:ident) => {
-        paste! {
+        paste::paste! {
             impl_output_peripheral!($perif, [<$perif _TAKEN>], $pin);
         }
     };
@@ -918,7 +912,7 @@ macro_rules! impl_output_peripheral {
     ($PERIF:ident, $PERIF_TAKEN:ident, $pin:ident) => {
         #[allow(non_camel_case_types)]
         pub struct $PERIF {
-            pub pin: Output,
+            pub pin: $crate::gpio::Output,
         }
         #[allow(non_upper_case_globals)]
         static mut $PERIF_TAKEN: bool = false;
@@ -978,7 +972,6 @@ mod beaglev_fire {
     use embedded_hal::digital::InputPin;
     use embedded_hal_async::digital::Wait;
     use mutually_exclusive_features::exactly_one_of;
-    use paste::paste;
 
     exactly_one_of!(
         "beaglev-fire-default-cape",

@@ -5,12 +5,16 @@ edition = "2021"
 publish = false
 
 [dependencies]
-mpfs-hal = { workspace = true }
-mpfs-hal-embassy = { workspace = true }
+mpfs-hal = { workspace = true, default-features = false, features = [
+    "beaglev-fire-no-cape",
+] } # We define our own cape
 
-embassy-time = { workspace = true }
+critical-section = { workspace = true }
 embedded-hal = { workspace = true }
+embedded-hal-async = { workspace = true }
+embassy-time = { workspace = true }
 log = { workspace = true }
+paste = "1.0"
 
 [features]
 default = ["resolution-800x480"]

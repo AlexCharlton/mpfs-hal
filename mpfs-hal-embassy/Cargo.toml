@@ -21,7 +21,7 @@ usb-device = []
 alloc = ["mpfs-hal/alloc"]
 
 [dependencies]
-mpfs-hal = { workspace = true }
+mpfs-hal = { workspace = true, default-features = false }
 mpfs-hal-procmacros = { workspace = true, features = ["embassy"] }
 
 aligned = { workspace = true }

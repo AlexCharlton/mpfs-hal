@@ -7,13 +7,14 @@ members = [
     "mpfs-hal-embassy",
     "dpi-display",
     "examples",
+    "dpi-display/examples",
 ]
 
 exclude = ["hss-tty-flasher"]
 
 [workspace.dependencies]
 mpfs-pac = { path = "./mpfs-pac", version = "0.3.0" }
-mpfs-hal = { path = "./mpfs-hal", version = "0.3.0" }
+mpfs-hal = { path = "./mpfs-hal", version = "0.3.0", default-features = false }
 mpfs-hal-embassy = { path = "./mpfs-hal-embassy", version = "0.1.0" }
 mpfs-hal-procmacros = { path = "./mpfs-hal-procmacros", version = "0.2.0" }
 dpi-display = { path = "./dpi-display", version = "0.1.0" }
