@@ -93,15 +93,16 @@ module CAPE (
   assign {G7, G6, G5, G4, G3, G2, G1, G0} = g;
   assign {B7, B6, B5, B4, B3, B2, B1, B0} = b;
 
-  assign GPIO_2_F2M[25:0] = 26'b0;
+  assign GPIO_2_F2M[23:0] = 24'b0;
+  assign GPIO_2_F2M[27:26] = 2'b0;
 
   display display_0 (
       .clk(ACLK),
       .reset(ARESETN),
       .buffer0_ready(GPIO_2_M2F[26]),
       .buffer1_ready(GPIO_2_M2F[27]),
-      .buffer0_locked(GPIO_2_F2M[26]),
-      .buffer1_locked(GPIO_2_F2M[27]),
+      .buffer0_locked(GPIO_2_F2M[24]),
+      .buffer1_locked(GPIO_2_F2M[25]),
       .spi_data(spi_data),
 
       .pclk(PCLK),

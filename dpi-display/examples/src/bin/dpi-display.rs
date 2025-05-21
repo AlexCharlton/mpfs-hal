@@ -2,7 +2,8 @@
 #![no_main]
 
 use dpi_display::*;
-use embedded_hal::digital::OutputPin;
+use embedded_hal::digital::{InputPin, OutputPin};
+use embedded_hal_async::digital::Wait;
 use mpfs_hal::{pac, Peripheral};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
@@ -71,9 +72,26 @@ async fn hart2_main(_spawner: embassy_executor::Spawner) {
     mpfs_hal::log_task().await;
 }
 
+#[mpfs_hal_embassy::embassy_hart3_main]
+async fn hart3_main(_spawner: embassy_executor::Spawner) {
+    let mut buffer0_locked = Buffer0Locked::take().unwrap();
+    let mut buffer1_locked = Buffer1Locked::take().unwrap();
+    loop {
+        while buffer0_locked.is_low().unwrap() {
+            core::hint::spin_loop();
+        }
+        log::info!("Buffer 0 locked");
+        while buffer0_locked.is_high().unwrap() {
+            core::hint::spin_loop();
+        }
+        log::info!("Buffer 0 unlocked");
+    }
+}
+
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Debug);
+    mpfs_hal::gpio::init();
 }
 
 #[panic_handler]

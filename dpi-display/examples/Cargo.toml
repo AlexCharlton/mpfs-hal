@@ -20,4 +20,5 @@ critical-section = { workspace = true }
 embassy-time = { workspace = true }
 embassy-executor = { workspace = true, features = ["task-arena-size-81920"] }
 embedded-hal = { workspace = true }
+embedded-hal-async = { workspace = true }
 log = { workspace = true }

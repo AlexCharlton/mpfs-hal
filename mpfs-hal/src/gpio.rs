@@ -979,28 +979,15 @@ mod beaglev_fire {
         "beaglev-fire-no-cape"
     );
 
-    pub const P8_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
-        base_addr: 0x4110_0000,
-        apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
-    };
-
-    pub const P9_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
-        base_addr: 0x41200000,
-        apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
-    };
-
     /// To be called before using any GPIO pins
     pub fn init() {
         unsafe {
             base_init();
-
-            // FPGA Core GPIO initialization
-            let mut p8: pac::gpio_instance_t = P8_CORE_GPIO;
-            log::trace!("Initializing FPGA Core GPIO {:?}", p8);
-            pac::GPIO_init(&mut p8, P8_CORE_GPIO.base_addr, P8_CORE_GPIO.apb_bus_width);
-            let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
-            log::trace!("Initializing FPGA Core GPIO {:?}", p9);
-            pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
+            #[cfg(any(
+                feature = "beaglev-fire-gpio-cape",
+                feature = "beaglev-fire-default-cape"
+            ))]
+            beaglev_fire_default_cape::cape_init();
         }
     }
 
@@ -1129,6 +1116,26 @@ mod beaglev_fire {
     mod beaglev_fire_default_cape {
         use super::*;
         use crate::pac;
+
+        pub(crate) unsafe fn cape_init() {
+            // FPGA Core GPIO initialization
+            let mut p8: pac::gpio_instance_t = P8_CORE_GPIO;
+            log::trace!("Initializing FPGA Core GPIO {:?}", p8);
+            pac::GPIO_init(&mut p8, P8_CORE_GPIO.base_addr, P8_CORE_GPIO.apb_bus_width);
+            let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
+            log::trace!("Initializing FPGA Core GPIO {:?}", p9);
+            pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
+        }
+
+        pub const P8_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
+            base_addr: 0x4110_0000,
+            apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
+        };
+
+        pub const P9_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
+            base_addr: 0x41200000,
+            apb_bus_width: pac::__gpio_apb_width_t_GPIO_APB_32_BITS_BUS,
+        };
 
         impl_gpio_pin!(
             P8_3,
@@ -1377,6 +1384,155 @@ mod beaglev_fire {
         impl_output_peripheral!(Led8, P8_11);
         impl_output_peripheral!(Led9, P8_12);
         impl_output_peripheral!(Led11, P8_14);
+
+        use embedded_hal::digital::{OutputPin, PinState};
+        pub struct Leds {
+            pub led0: Led0,
+            pub led1: Led1,
+            pub led2: Led2,
+            pub led3: Led3,
+            pub led4: Led4,
+            pub led5: Led5,
+            pub led6: Led6,
+            pub led7: Led7,
+            pub led8: Led8,
+            pub led9: Led9,
+            #[cfg(feature = "beaglev-fire-gpio-cape")]
+            pub led10: Led10,
+            pub led11: Led11,
+        }
+
+        impl Leds {
+            pub fn set_led(&mut self, led_num: usize, on: bool) {
+                let pin_state = if on { PinState::High } else { PinState::Low };
+                match led_num {
+                    0 => self.led0.set_state(pin_state),
+                    1 => self.led1.set_state(pin_state),
+                    2 => self.led2.set_state(pin_state),
+                    3 => self.led3.set_state(pin_state),
+                    4 => self.led4.set_state(pin_state),
+                    5 => self.led5.set_state(pin_state),
+                    6 => self.led6.set_state(pin_state),
+                    7 => self.led7.set_state(pin_state),
+                    8 => self.led8.set_state(pin_state),
+                    9 => self.led9.set_state(pin_state),
+                    #[cfg(feature = "beaglev-fire-gpio-cape")]
+                    10 => self.led10.set_state(pin_state),
+                    #[cfg(not(feature = "beaglev-fire-gpio-cape"))]
+                    10 => Ok(()),
+                    11 => self.led11.set_state(pin_state),
+                    _ => panic!("Invalid LED number: {}", led_num),
+                }
+                .unwrap();
+            }
+        }
+
+        impl crate::Peripheral for Leds {
+            fn take() -> Option<Self> {
+                let led0 = Led0::take();
+                let led1 = Led1::take();
+                let led2 = Led2::take();
+                let led3 = Led3::take();
+                let led4 = Led4::take();
+                let led5 = Led5::take();
+                let led6 = Led6::take();
+                let led7 = Led7::take();
+                let led8 = Led8::take();
+                let led9 = Led9::take();
+                #[cfg(feature = "beaglev-fire-gpio-cape")]
+                let led10 = Led10::take();
+                let led11 = Led11::take();
+
+                #[cfg(feature = "beaglev-fire-default-cape")]
+                {
+                    if let (
+                        Some(led0),
+                        Some(led1),
+                        Some(led2),
+                        Some(led3),
+                        Some(led4),
+                        Some(led5),
+                        Some(led6),
+                        Some(led7),
+                        Some(led8),
+                        Some(led9),
+                        Some(led11),
+                    ) = (
+                        led0, led1, led2, led3, led4, led5, led6, led7, led8, led9, led11,
+                    ) {
+                        Some(Self {
+                            led0,
+                            led1,
+                            led2,
+                            led3,
+                            led4,
+                            led5,
+                            led6,
+                            led7,
+                            led8,
+                            led9,
+                            led11,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(feature = "beaglev-fire-gpio-cape")]
+                {
+                    if let (
+                        Some(led0),
+                        Some(led1),
+                        Some(led2),
+                        Some(led3),
+                        Some(led4),
+                        Some(led5),
+                        Some(led6),
+                        Some(led7),
+                        Some(led8),
+                        Some(led9),
+                        Some(led10),
+                        Some(led11),
+                    ) = (
+                        led0, led1, led2, led3, led4, led5, led6, led7, led8, led9, led10, led11,
+                    ) {
+                        Some(Self {
+                            led0,
+                            led1,
+                            led2,
+                            led3,
+                            led4,
+                            led5,
+                            led6,
+                            led7,
+                            led8,
+                            led9,
+                            led10,
+                            led11,
+                        })
+                    } else {
+                        None
+                    }
+                }
+            }
+
+            unsafe fn steal() -> Self {
+                Self {
+                    led0: Led0::steal(),
+                    led1: Led1::steal(),
+                    led2: Led2::steal(),
+                    led3: Led3::steal(),
+                    led4: Led4::steal(),
+                    led5: Led5::steal(),
+                    led6: Led6::steal(),
+                    led7: Led7::steal(),
+                    led8: Led8::steal(),
+                    led9: Led9::steal(),
+                    #[cfg(feature = "beaglev-fire-gpio-cape")]
+                    led10: Led10::steal(),
+                    led11: Led11::steal(),
+                }
+            }
+        }
     }
 
     #[cfg(feature = "beaglev-fire-gpio-cape")]
