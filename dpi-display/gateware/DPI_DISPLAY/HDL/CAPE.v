@@ -38,10 +38,9 @@ module CAPE (
     output logic B6,
     output logic B7,
 
-    output logic BLINK,
-    output logic SPI_MOSI,
-    output logic SPI_CLK,
-    output logic SPI_ENABLE,
+    // output logic SPI_MOSI,
+    // output logic SPI_CLK,
+    // output logic SPI_ENABLE,
 
     // FIC_0 AXI4 Read Address Channel
     output logic [37:0] FIC_0_AXI4_TARGET_FIC_0_AXI4_S_ARADDR,

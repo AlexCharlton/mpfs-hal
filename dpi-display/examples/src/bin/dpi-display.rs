@@ -1,9 +1,11 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
+use alloc::vec;
+use alloc::vec::Vec;
 use dpi_display::*;
-use embedded_hal::digital::OutputPin;
-use embedded_hal_async::digital::Wait;
 use mpfs_hal::{pac, Peripheral};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
@@ -11,61 +13,70 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
     log::info!("Display dimensions: {}x{}", WIDTH, HEIGHT);
     let addr = (pac::heap_end() + 0x4_0000_0000) as *mut u64;
+    let mut test_data: Vec<u8> = vec![0; BUFFER_SIZE * 2];
     log::info!("Hello world! Address: {:x?}", addr);
-    unsafe {
-        let mut i = 0;
-        // write 2 buffers worth of data
-        while i < 144000 * 2 {
-            if i < 72000 {
-                // RRRR GGGG BBBB WWWW
-                *(addr.add(i + 0)) = 0xFF0000_FF0000_FF00;
-                *(addr.add(i + 1)) = 0x00FF000000FF0000;
-                *(addr.add(i + 2)) = 0xFF0000FF0000FF00;
-                *(addr.add(i + 3)) = 0x0000FF0000FF0000;
-                *(addr.add(i + 4)) = 0xFF0000FFFFFFFFFF;
-                *(addr.add(i + 5)) = 0xFFFFFFFFFFFFFFFF;
-            } else if i < 144000 {
-                // Just Red
-                *(addr.add(i + 0)) = 0xFF0000FF0000FF00;
-                *(addr.add(i + 1)) = 0x00FF0000FF0000FF;
-                *(addr.add(i + 2)) = 0x0000FF0000FF0000;
-                *(addr.add(i + 3)) = 0xFF0000FF0000FF00;
-                *(addr.add(i + 4)) = 0x00FF0000FF0000FF;
-                *(addr.add(i + 5)) = 0x0000FF0000FF0000;
-            } else if i < 216000 {
-                // Just Green
-                *(addr.add(i + 0)) = 0x00FF0000FF0000FF;
-                *(addr.add(i + 1)) = 0x0000FF0000FF0000;
-                *(addr.add(i + 2)) = 0xFF0000FF0000FF00;
-                *(addr.add(i + 3)) = 0x00FF0000FF0000FF;
-                *(addr.add(i + 4)) = 0x0000FF0000FF0000;
-                *(addr.add(i + 5)) = 0xFF0000FF0000FF00;
-            } else {
-                // Just Blue
-                *(addr.add(i + 0)) = 0x0000FF0000FF0000;
-                *(addr.add(i + 1)) = 0xFF0000FF0000FF00;
-                *(addr.add(i + 2)) = 0x00FF0000FF0000FF;
-                *(addr.add(i + 3)) = 0x0000FF0000FF0000;
-                *(addr.add(i + 4)) = 0xFF0000FF0000FF00;
-                *(addr.add(i + 5)) = 0x00FF0000FF0000FF;
-            }
-            i += 6;
+    let mut i = 0;
+    // write 2 buffers worth of data
+    while i < 144000 * 2 {
+        if i < 72000 {
+            // RRRR GGGG BBBB WWWW
+            test_data[i * 8..i * 8 + 48].copy_from_slice(&[
+                0xFF, 0x00, 0x00, // R
+                0xFF, 0x00, 0x00, // R
+                0xFF, 0x00, 0x00, // R
+                0xFF, 0x00, 0x00, // R
+                0x00, 0xFF, 0x00, // G
+                0x00, 0xFF, 0x00, // G
+                0x00, 0xFF, 0x00, // G
+                0x00, 0xFF, 0x00, // G
+                0x00, 0x00, 0xFF, // B
+                0x00, 0x00, 0xFF, // B
+                0x00, 0x00, 0xFF, // B
+                0x00, 0x00, 0xFF, // B
+                0xFF, 0xFF, 0xFF, // W
+                0xFF, 0xFF, 0xFF, // W
+                0xFF, 0xFF, 0xFF, // W
+                0xFF, 0xFF, 0xFF, // W
+            ]);
+        } else if i < 144000 {
+            // Just Red
+            test_data[i * 8..i * 8 + 48].copy_from_slice(&[
+                0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00,
+                0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF,
+                0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00,
+                0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00,
+            ]);
+        } else if i < 216000 {
+            // Just Green
+            test_data[i * 8..i * 8 + 48].copy_from_slice(&[
+                0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF,
+                0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00,
+                0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00,
+                0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00,
+            ]);
+        } else {
+            // Just Blue
+            test_data[i * 8..i * 8 + 48].copy_from_slice(&[
+                0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00,
+                0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00,
+                0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF,
+                0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF,
+            ]);
         }
-        log::info!("Hello world! Value: {:x?}", *addr);
+        i += 6;
     }
 
-    let mut buffer0_ready = Buffer0Ready::take().unwrap();
-    let mut buffer1_ready = Buffer1Ready::take().unwrap();
-
+    let mut display = Display::take().unwrap();
+    let mut buffer_num = 0;
     loop {
-        // Always mark previous buffer as not ready before setting current buffer ready
-        buffer1_ready.set_low().unwrap();
-        buffer0_ready.set_high().unwrap();
-        log::info!("Buffer 0 ready");
-        embassy_time::Timer::after_secs(1).await;
-        buffer0_ready.set_low().unwrap();
-        buffer1_ready.set_high().unwrap();
-        log::info!("Buffer 1 ready");
+        {
+            // Make sure we drop the buffer as soon as possible
+            let mut buffer = display.get_buffer().await;
+            buffer.as_slice()[..].copy_from_slice(
+                &test_data[buffer_num * BUFFER_SIZE..(buffer_num + 1) * BUFFER_SIZE],
+            );
+            buffer_num = (buffer_num + 1) % 2;
+        }
         embassy_time::Timer::after_secs(1).await;
     }
 }
@@ -74,19 +85,6 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 async fn hart2_main(_spawner: embassy_executor::Spawner) {
     mpfs_hal::log_task().await;
 }
-
-#[mpfs_hal_embassy::embassy_hart3_main]
-async fn hart3_main(_spawner: embassy_executor::Spawner) {
-    let mut buffer0_locked = Buffer0Locked::take().unwrap();
-    let mut buffer1_locked = Buffer1Locked::take().unwrap();
-    loop {
-        let _ = buffer0_locked.wait_for_high().await;
-        log::info!("Buffer 0 locked");
-        let _ = buffer1_locked.wait_for_high().await;
-        log::info!("Buffer 1 locked");
-    }
-}
-
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Debug);

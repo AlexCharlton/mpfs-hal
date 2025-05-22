@@ -29,6 +29,12 @@ pub use usb::*;
 pub mod spi;
 pub use spi::{QSPI, SPI0, SPI1};
 
+/// Add to a regular address to get the same address in uncached memory
+#[cfg(feature = "upper-memory-layout")]
+pub const UNCACHED_MEMORY_OFFSET: usize = 0x4_0000_0000;
+#[cfg(not(feature = "upper-memory-layout"))]
+pub const UNCACHED_MEMORY_OFFSET: usize = 0x1000_0000;
+
 #[inline]
 pub fn hart_id() -> usize {
     let mut hart_id: usize;

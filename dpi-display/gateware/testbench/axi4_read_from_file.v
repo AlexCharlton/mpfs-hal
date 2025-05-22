@@ -51,36 +51,36 @@ module axi4_read_from_file #(
     for (int i = 0; i < MEMORY_SIZE * 2; i = i + 6) begin
       if (i < 72000) begin
         // RRRR GGGG BBBB WWWW
-        memory[i+0] = 64'hFF0000FF0000FF00;
-        memory[i+1] = 64'h00FF000000FF0000;
-        memory[i+2] = 64'hFF0000FF0000FF00;
+        memory[i+0] = 64'h00FF0000FF0000FF;
+        memory[i+1] = 64'h0000FF000000FF00;
+        memory[i+2] = 64'h00FF0000FF0000FF;
         memory[i+3] = 64'h0000FF0000FF0000;
-        memory[i+4] = 64'hFF0000FFFFFFFFFF;
+        memory[i+4] = 64'hFFFFFFFFFF0000FF;
         memory[i+5] = 64'hFFFFFFFFFFFFFFFF;
       end else if (i < 144000) begin
         // Just Red
-        memory[i+0] = 64'hFF0000FF0000FF00;
-        memory[i+1] = 64'h00FF0000FF0000FF;
+        memory[i+0] = 64'h00FF0000FF0000FF;
+        memory[i+1] = 64'hFF0000FF0000FF00;
         memory[i+2] = 64'h0000FF0000FF0000;
-        memory[i+3] = 64'hFF0000FF0000FF00;
-        memory[i+4] = 64'h00FF0000FF0000FF;
+        memory[i+3] = 64'h00FF0000FF0000FF;
+        memory[i+4] = 64'hFF0000FF0000FF00;
         memory[i+5] = 64'h0000FF0000FF0000;
       end else if (i < 216000) begin
         // Just Green
-        memory[i+0] = 64'h00FF0000FF0000FF;
+        memory[i+0] = 64'hFF0000FF0000FF00;
         memory[i+1] = 64'h0000FF0000FF0000;
-        memory[i+2] = 64'hFF0000FF0000FF00;
-        memory[i+3] = 64'h00FF0000FF0000FF;
+        memory[i+2] = 64'h00FF0000FF0000FF;
+        memory[i+3] = 64'hFF0000FF0000FF00;
         memory[i+4] = 64'h0000FF0000FF0000;
-        memory[i+5] = 64'hFF0000FF0000FF00;
+        memory[i+5] = 64'h00FF0000FF0000FF;
       end else begin
         // Just Blue
         memory[i+0] = 64'h0000FF0000FF0000;
-        memory[i+1] = 64'hFF0000FF0000FF00;
-        memory[i+2] = 64'h00FF0000FF0000FF;
+        memory[i+1] = 64'h00FF0000FF0000FF;
+        memory[i+2] = 64'hFF0000FF0000FF00;
         memory[i+3] = 64'h0000FF0000FF0000;
-        memory[i+4] = 64'hFF0000FF0000FF00;
-        memory[i+5] = 64'h00FF0000FF0000FF;
+        memory[i+4] = 64'h00FF0000FF0000FF;
+        memory[i+5] = 64'hFF0000FF0000FF00;
       end
     end
 

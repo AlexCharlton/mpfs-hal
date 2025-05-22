@@ -147,9 +147,9 @@ module display #(
     output logic vsync,
     output logic hsync,
     output logic data_enable,
-    output logic [7:0] r,
-    output logic [7:0] g,
-    output logic [7:0] b,
+    output logic [7:0] r  /* synthesis syn_preserve=1 */,
+    output logic [7:0] g  /* synthesis syn_preserve=1 */,
+    output logic [7:0] b  /* synthesis syn_preserve=1 */,
 
     // FIC_0 AXI4 Read Address Channel
     output logic [37:0] fic0_araddr,
@@ -226,7 +226,7 @@ module display #(
   logic [37:0] fic0_addr;
   logic [37:0] fic1_addr;
   // Address boundaries
-  logic [37:0] address_limit, address_buffer_offset;
+  logic [37:0] address_buffer_offset  /* synthesis syn_preserve=1 */;
   // State of buffers, and are we ready to read?
   logic fic0_ready, fic1_ready;
   logic fic0_buffer_full, fic1_buffer_full;
@@ -616,84 +616,84 @@ module display #(
 
               case (read_pos % 48)
                 0: begin
-                  r <= buffer0[0+read_pos_div48_mult3][63:56];
-                  g <= buffer0[0+read_pos_div48_mult3][55:48];
-                  b <= buffer0[0+read_pos_div48_mult3][47:40];
-                end
-                3: begin
-                  r <= buffer0[0+read_pos_div48_mult3][39:32];
-                  g <= buffer0[0+read_pos_div48_mult3][31:24];
+                  r <= buffer0[0+read_pos_div48_mult3][7:0];
+                  g <= buffer0[0+read_pos_div48_mult3][15:8];
                   b <= buffer0[0+read_pos_div48_mult3][23:16];
                 end
+                3: begin
+                  r <= buffer0[0+read_pos_div48_mult3][31:24];
+                  g <= buffer0[0+read_pos_div48_mult3][39:32];
+                  b <= buffer0[0+read_pos_div48_mult3][47:40];
+                end
                 6: begin
-                  r <= buffer0[0+read_pos_div48_mult3][15:8];
-                  g <= buffer0[0+read_pos_div48_mult3][7:0];
-                  b <= buffer1[0+read_pos_div48_mult3][63:56];
+                  r <= buffer0[0+read_pos_div48_mult3][55:48];
+                  g <= buffer0[0+read_pos_div48_mult3][63:56];
+                  b <= buffer1[0+read_pos_div48_mult3][7:0];
                 end
                 9: begin
-                  r <= buffer1[0+read_pos_div48_mult3][55:48];
-                  g <= buffer1[0+read_pos_div48_mult3][47:40];
-                  b <= buffer1[0+read_pos_div48_mult3][39:32];
+                  r <= buffer1[0+read_pos_div48_mult3][15:8];
+                  g <= buffer1[0+read_pos_div48_mult3][23:16];
+                  b <= buffer1[0+read_pos_div48_mult3][31:24];
                 end
                 12: begin
-                  r <= buffer1[0+read_pos_div48_mult3][31:24];
-                  g <= buffer1[0+read_pos_div48_mult3][23:16];
-                  b <= buffer1[0+read_pos_div48_mult3][15:8];
+                  r <= buffer1[0+read_pos_div48_mult3][39:32];
+                  g <= buffer1[0+read_pos_div48_mult3][47:40];
+                  b <= buffer1[0+read_pos_div48_mult3][55:48];
                 end
                 15: begin
-                  r <= buffer1[0+read_pos_div48_mult3][7:0];
-                  g <= buffer0[1+read_pos_div48_mult3][63:56];
-                  b <= buffer0[1+read_pos_div48_mult3][55:48];
+                  r <= buffer1[0+read_pos_div48_mult3][63:56];
+                  g <= buffer0[1+read_pos_div48_mult3][7:0];
+                  b <= buffer0[1+read_pos_div48_mult3][15:8];
                 end
                 18: begin
-                  r <= buffer0[1+read_pos_div48_mult3][47:40];
-                  g <= buffer0[1+read_pos_div48_mult3][39:32];
-                  b <= buffer0[1+read_pos_div48_mult3][31:24];
+                  r <= buffer0[1+read_pos_div48_mult3][23:16];
+                  g <= buffer0[1+read_pos_div48_mult3][31:24];
+                  b <= buffer0[1+read_pos_div48_mult3][39:32];
                 end
                 21: begin
-                  r <= buffer0[1+read_pos_div48_mult3][23:16];
-                  g <= buffer0[1+read_pos_div48_mult3][15:8];
-                  b <= buffer0[1+read_pos_div48_mult3][7:0];
+                  r <= buffer0[1+read_pos_div48_mult3][47:40];
+                  g <= buffer0[1+read_pos_div48_mult3][55:48];
+                  b <= buffer0[1+read_pos_div48_mult3][63:56];
                 end
                 24: begin
-                  r <= buffer1[1+read_pos_div48_mult3][63:56];
-                  g <= buffer1[1+read_pos_div48_mult3][55:48];
-                  b <= buffer1[1+read_pos_div48_mult3][47:40];
-                end
-                27: begin
-                  r <= buffer1[1+read_pos_div48_mult3][39:32];
-                  g <= buffer1[1+read_pos_div48_mult3][31:24];
+                  r <= buffer1[1+read_pos_div48_mult3][7:0];
+                  g <= buffer1[1+read_pos_div48_mult3][15:8];
                   b <= buffer1[1+read_pos_div48_mult3][23:16];
                 end
+                27: begin
+                  r <= buffer1[1+read_pos_div48_mult3][31:24];
+                  g <= buffer1[1+read_pos_div48_mult3][39:32];
+                  b <= buffer1[1+read_pos_div48_mult3][47:40];
+                end
                 30: begin
-                  r <= buffer1[1+read_pos_div48_mult3][15:8];
-                  g <= buffer1[1+read_pos_div48_mult3][7:0];
-                  b <= buffer0[2+read_pos_div48_mult3][63:56];
+                  r <= buffer1[1+read_pos_div48_mult3][55:48];
+                  g <= buffer1[1+read_pos_div48_mult3][63:56];
+                  b <= buffer0[2+read_pos_div48_mult3][7:0];
                 end
                 33: begin
-                  r <= buffer0[2+read_pos_div48_mult3][55:48];
-                  g <= buffer0[2+read_pos_div48_mult3][47:40];
-                  b <= buffer0[2+read_pos_div48_mult3][39:32];
+                  r <= buffer0[2+read_pos_div48_mult3][15:8];
+                  g <= buffer0[2+read_pos_div48_mult3][23:16];
+                  b <= buffer0[2+read_pos_div48_mult3][31:24];
                 end
                 36: begin
-                  r <= buffer0[2+read_pos_div48_mult3][31:24];
-                  g <= buffer0[2+read_pos_div48_mult3][23:16];
-                  b <= buffer0[2+read_pos_div48_mult3][15:8];
+                  r <= buffer0[2+read_pos_div48_mult3][39:32];
+                  g <= buffer0[2+read_pos_div48_mult3][47:40];
+                  b <= buffer0[2+read_pos_div48_mult3][55:48];
                 end
                 39: begin
-                  r <= buffer0[2+read_pos_div48_mult3][7:0];
-                  g <= buffer1[2+read_pos_div48_mult3][63:56];
-                  b <= buffer1[2+read_pos_div48_mult3][55:48];
+                  r <= buffer0[2+read_pos_div48_mult3][63:56];
+                  g <= buffer1[2+read_pos_div48_mult3][7:0];
+                  b <= buffer1[2+read_pos_div48_mult3][15:8];
                 end
                 42: begin
-                  r <= buffer1[2+read_pos_div48_mult3][47:40];
-                  g <= buffer1[2+read_pos_div48_mult3][39:32];
-                  b <= buffer1[2+read_pos_div48_mult3][31:24];
+                  r <= buffer1[2+read_pos_div48_mult3][23:16];
+                  g <= buffer1[2+read_pos_div48_mult3][31:24];
+                  b <= buffer1[2+read_pos_div48_mult3][39:32];
                 end
                 45: begin
-                  r <= buffer1[2+read_pos_div48_mult3][23:16];
-                  g <= buffer1[2+read_pos_div48_mult3][15:8];
-                  b <= buffer1[2+read_pos_div48_mult3][7:0];
+                  r <= buffer1[2+read_pos_div48_mult3][47:40];
+                  g <= buffer1[2+read_pos_div48_mult3][55:48];
+                  b <= buffer1[2+read_pos_div48_mult3][63:56];
                 end
               endcase
               next_read_pos <= (read_pos + 3) % (BUFFER_SIZE * 8 * 2);
