@@ -8,6 +8,7 @@ mod resolution {
 
 pub use resolution::*;
 pub const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3; // 3 bytes per pixel
+pub const BUFFER_SEPARATION: usize = BUFFER_SIZE;
 
 // Inputs/outputs for display synchronization
 mod io {
@@ -80,10 +81,13 @@ mod buffer {
 
     impl<'a> Drop for DisplayBuffer<'a> {
         fn drop(&mut self) {
+            core::sync::atomic::fence(core::sync::atomic::Ordering::Release); // Ensure writes complete
             if self.is_buffer1 {
                 self.buffer1_ready.set_high().unwrap();
+                log::trace!("Display buffer 1 marked ready");
             } else {
                 self.buffer0_ready.set_high().unwrap();
+                log::trace!("Display buffer 0 marked ready");
             }
         }
     }
@@ -137,8 +141,7 @@ mod buffer {
 
         unsafe fn steal() -> Self {
             Self {
-                base_addr: (mpfs_hal::pac::heap_end() + mpfs_hal::pac::UNCACHED_MEMORY_OFFSET)
-                    as *mut u8,
+                base_addr: (mpfs_hal::pac::heap_end()) as *mut u8,
                 use_buffer1_next: false,
                 buffer0_locked: Buffer0Locked::steal(),
                 buffer1_locked: Buffer1Locked::steal(),
@@ -150,7 +153,7 @@ mod buffer {
 
     impl Display {
         fn _get_buffer(&mut self, upper: bool) -> DisplayBuffer {
-            let offset = if upper { BUFFER_SIZE } else { 0 };
+            let offset = if upper { BUFFER_SEPARATION } else { 0 };
             let buffer =
                 unsafe { slice::from_raw_parts_mut(self.base_addr.add(offset), BUFFER_SIZE) };
             DisplayBuffer {

@@ -118,12 +118,12 @@ module display #(
     parameter CLOCK_HIGH_TIME = CLOCK_DIVIDER - CLOCK_LOW_TIME,
 
     // Pixel data
-    parameter AXI_READ_ADDR = 38'h147fc00000,
+    parameter AXI_READ_ADDR = 38'h107fc00000,
     parameter MEMORY_SIZE = 144000,  // In 64-bit words, for a single buffer; MUST BE A MULTIPLE OF 6
     parameter BUFFER_SIZE = 6,  // 64-bit words; circular buffer (must be a multiple of 3; The buffer is double this size, since we create a buffer per AXI channel. Large values cause synthesis to take forever)
 
     // Derived parameters (don't override these)
-    // parameter UPPER_ADDR_LIMIT = AXI_READ_ADDR + (MEMORY_SIZE * 8 * 2),
+    parameter BUFFER_SEPARATION = MEMORY_SIZE * 8,
     parameter UPPER_ADDR_LIMIT = AXI_READ_ADDR + (MEMORY_SIZE * 8),
     parameter NUM_PIXELS = H_PIXELS * V_PIXELS,
     parameter LINE_CLK_COUNT = H_PIXELS + H_FRONT_PORCH_WIDTH + H_SYNC_WIDTH + H_BACK_PORCH_WIDTH,
@@ -337,7 +337,7 @@ module display #(
             buffer0_locked <= 0;
             last_buffer_used <= 1;
             have_lock <= 1;
-            address_buffer_offset <= MEMORY_SIZE * 8;
+            address_buffer_offset <= BUFFER_SEPARATION;
           end
         end
       end

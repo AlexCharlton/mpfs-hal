@@ -8,13 +8,8 @@ use alloc::vec::Vec;
 use dpi_display::*;
 use mpfs_hal::{pac, Peripheral};
 
-#[mpfs_hal_embassy::embassy_hart1_main]
-async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    log::info!("Hello world!");
-    log::info!("Display dimensions: {}x{}", WIDTH, HEIGHT);
-    let addr = (pac::heap_end() + 0x4_0000_0000) as *mut u64;
+fn generate_test_data() -> Vec<u8> {
     let mut test_data: Vec<u8> = vec![0; BUFFER_SIZE * 2];
-    log::info!("Hello world! Address: {:x?}", addr);
     let mut i = 0;
     // write 2 buffers worth of data
     while i < 144000 * 2 {
@@ -65,7 +60,16 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
         i += 6;
     }
+    test_data
+}
 
+#[mpfs_hal_embassy::embassy_hart1_main]
+async fn hart1_main(_spawner: embassy_executor::Spawner) {
+    log::info!("Hello world!");
+    log::info!("Display dimensions: {}x{}", WIDTH, HEIGHT);
+    log::info!("Buffer address: 0x{:x?}", pac::heap_end());
+
+    let test_data = generate_test_data();
     let mut display = Display::take().unwrap();
     let mut buffer_num = 0;
     loop {
