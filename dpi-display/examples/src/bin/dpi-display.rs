@@ -71,17 +71,26 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 
     let test_data = generate_test_data();
     let mut display = Display::take().unwrap();
-    let mut buffer_num = 0;
+    let mut line_offset = 0;
+
     loop {
-        {
-            // Make sure we drop the buffer as soon as possible
-            let mut buffer = display.get_buffer().await;
-            buffer.as_slice()[..].copy_from_slice(
-                &test_data[buffer_num * BUFFER_SIZE..(buffer_num + 1) * BUFFER_SIZE],
-            );
-            buffer_num = (buffer_num + 1) % 2;
+        let mut buffer = display.get_buffer().await;
+        let bytes_per_line = WIDTH * 3;
+
+        // Calculate starting position in test data
+        let start_pos = (line_offset * bytes_per_line) as usize;
+
+        if start_pos + BUFFER_SIZE <= test_data.len() {
+            // If we can copy in one go
+            buffer.as_slice()[..].copy_from_slice(&test_data[start_pos..start_pos + BUFFER_SIZE]);
+        } else {
+            // Need to wrap around - do it in two copies
+            let first_part = test_data.len() - start_pos;
+            buffer.as_slice()[..first_part].copy_from_slice(&test_data[start_pos..]);
+            buffer.as_slice()[first_part..].copy_from_slice(&test_data[..BUFFER_SIZE - first_part]);
         }
-        embassy_time::Timer::after_secs(1).await;
+
+        line_offset = (line_offset + 1) % (test_data.len() / bytes_per_line);
     }
 }
 

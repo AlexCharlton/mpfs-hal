@@ -187,6 +187,11 @@ sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {BVF_RISCV_SUBSYSTEM:
 sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {BVF_RISCV_SUBSYSTEM:FIC_1_AXI4_TARGET_FIC_1_AXI4_S_BREADY} -value {GND}
 
 ## Debug connections
+# sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_22" "CAPE:buffer0_ready" }
+# sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_21" "CAPE:buffer1_ready" }
+# sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_24" "CAPE:buffer0_locked" }
+# sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_23" "CAPE:buffer1_locked" }
+
 # sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_21" "CAPE:SPI_MOSI" }
 # sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_23" "CAPE:SPI_CLK" }
 # sd_connect_pins -sd_name ${sd_name} -pin_names {"P9_25" "CAPE:SPI_ENABLE" }

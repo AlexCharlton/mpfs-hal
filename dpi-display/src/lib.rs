@@ -83,9 +83,13 @@ mod buffer {
         fn drop(&mut self) {
             core::sync::atomic::fence(core::sync::atomic::Ordering::Release); // Ensure writes complete
             if self.is_buffer1 {
+                let _ = self.buffer0_ready.set_low().unwrap();
+                log::trace!("Display buffer 0 marked not ready");
                 self.buffer1_ready.set_high().unwrap();
                 log::trace!("Display buffer 1 marked ready");
             } else {
+                let _ = self.buffer1_ready.set_low().unwrap();
+                log::trace!("Display buffer 1 marked not ready");
                 self.buffer0_ready.set_high().unwrap();
                 log::trace!("Display buffer 0 marked ready");
             }
@@ -168,14 +172,13 @@ mod buffer {
             let use_buffer1_next = self.use_buffer1_next;
             self.use_buffer1_next = !use_buffer1_next;
             if use_buffer1_next {
-                let _ = self.buffer0_ready.set_low().unwrap();
-                log::trace!("Display buffer 0 marked not ready, waiting for buffer 1");
+                log::trace!("Waiting for display buffer 1 to be unlocked");
                 let _ = self.buffer1_locked.wait_for_low().await;
             } else {
-                let _ = self.buffer1_ready.set_low().unwrap();
-                log::trace!("Display buffer 1 marked not ready, waiting for buffer 0");
+                log::trace!("Waiting for display buffer 0 to be unlocked");
                 let _ = self.buffer0_locked.wait_for_low().await;
             }
+            log::trace!("Got display buffer");
             self._get_buffer(use_buffer1_next)
         }
     }

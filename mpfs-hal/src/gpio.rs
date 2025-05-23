@@ -704,7 +704,16 @@ impl Future for InputFuture {
             self.as_mut().pin.interrupt.triggered()
         });
 
-        if trigger {
+        if ((self.trigger == InterruptTrigger::EdgePositive
+            || self.trigger == InterruptTrigger::LevelHigh)
+            && self.as_mut().pin.is_high())
+            || ((self.trigger == InterruptTrigger::EdgeNegative
+                || self.trigger == InterruptTrigger::LevelLow)
+                && !self.as_mut().pin.is_high())
+        {
+            // Check to see if the pin is in the state we're looking for, even if the interrupt wasn't triggered
+            Poll::Ready(Ok(()))
+        } else if trigger {
             if ((self.trigger == InterruptTrigger::EdgePositive
                 || self.trigger == InterruptTrigger::LevelHigh)
                 && !self.as_mut().pin.is_high())

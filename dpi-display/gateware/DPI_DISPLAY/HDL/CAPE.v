@@ -2,13 +2,11 @@
 
 // CAPE
 module CAPE (
-    // Inputs
     input logic ACLK,
     input logic ARESETN,
     input logic [27:0] GPIO_2_M2F,
     output logic [27:0] GPIO_2_F2M,
 
-    // Outputs
     output logic PCLK,
     output logic VSYNC,
     output logic HSYNC,
@@ -37,6 +35,11 @@ module CAPE (
     output logic B5,
     output logic B6,
     output logic B7,
+
+    output logic buffer0_locked,
+    output logic buffer1_locked,
+    output logic buffer0_ready,
+    output logic buffer1_ready,
 
     // output logic SPI_MOSI,
     // output logic SPI_CLK,
@@ -95,13 +98,18 @@ module CAPE (
   assign GPIO_2_F2M[23:0] = 24'b0;
   assign GPIO_2_F2M[27:26] = 2'b0;
 
+  assign buffer0_ready = GPIO_2_M2F[26];
+  assign buffer1_ready = GPIO_2_M2F[27];
+  assign GPIO_2_F2M[24] = buffer0_locked;
+  assign GPIO_2_F2M[25] = buffer1_locked;
+
   display display_0 (
       .clk(ACLK),
       .reset(ARESETN),
-      .buffer0_ready(GPIO_2_M2F[26]),
-      .buffer1_ready(GPIO_2_M2F[27]),
-      .buffer0_locked(GPIO_2_F2M[24]),
-      .buffer1_locked(GPIO_2_F2M[25]),
+      .buffer0_ready(buffer0_ready),
+      .buffer1_ready(buffer1_ready),
+      .buffer0_locked(buffer0_locked),
+      .buffer1_locked(buffer1_locked),
       .spi_data(spi_data),
 
       .pclk(PCLK),
