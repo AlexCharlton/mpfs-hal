@@ -127,9 +127,7 @@ mod buffer {
                     {
                         DISPLAY_TAKEN = true;
                         Some(Self {
-                            base_addr: (mpfs_hal::pac::heap_end()
-                                + mpfs_hal::pac::UNCACHED_MEMORY_OFFSET)
-                                as *mut u8,
+                            base_addr: mpfs_hal::pac::heap_end() as *mut u8,
                             use_buffer1_next: false,
                             buffer0_locked,
                             buffer1_locked,
@@ -145,7 +143,7 @@ mod buffer {
 
         unsafe fn steal() -> Self {
             Self {
-                base_addr: (mpfs_hal::pac::heap_end()) as *mut u8,
+                base_addr: mpfs_hal::pac::heap_end() as *mut u8,
                 use_buffer1_next: false,
                 buffer0_locked: Buffer0Locked::steal(),
                 buffer1_locked: Buffer1Locked::steal(),
