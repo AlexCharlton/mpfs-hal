@@ -101,7 +101,7 @@ async fn hart2_main(_spawner: embassy_executor::Spawner) {
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Debug);
-    mpfs_hal::gpio::init();
+    dpi_display::init();
 }
 
 #[panic_handler]

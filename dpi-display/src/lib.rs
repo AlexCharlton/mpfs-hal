@@ -10,6 +10,10 @@ pub use resolution::*;
 pub const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3; // 3 bytes per pixel
 pub const BUFFER_SEPARATION: usize = BUFFER_SIZE;
 
+pub fn init() {
+    mpfs_hal::gpio::init();
+}
+
 // Inputs/outputs for display synchronization
 mod io {
     use mpfs_hal::{
