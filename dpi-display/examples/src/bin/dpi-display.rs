@@ -91,6 +91,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
 
         line_offset = (line_offset + 1) % (test_data.len() / bytes_per_line);
+        display.flush();
     }
 }
 

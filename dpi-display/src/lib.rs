@@ -8,7 +8,7 @@ mod resolution {
 
 pub use resolution::*;
 pub const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3; // 3 bytes per pixel
-pub const BUFFER_SEPARATION: usize = BUFFER_SIZE;
+const BUFFER_SEPARATION: usize = BUFFER_SIZE;
 
 pub fn init() {
     mpfs_hal::gpio::init();
@@ -83,23 +83,6 @@ mod buffer {
         }
     }
 
-    impl<'a> Drop for DisplayBuffer<'a> {
-        fn drop(&mut self) {
-            core::sync::atomic::fence(core::sync::atomic::Ordering::Release); // Ensure writes complete
-            if self.is_buffer1 {
-                let _ = self.buffer0_ready.set_low().unwrap();
-                log::trace!("Display buffer 0 marked not ready");
-                self.buffer1_ready.set_high().unwrap();
-                log::trace!("Display buffer 1 marked ready");
-            } else {
-                let _ = self.buffer1_ready.set_low().unwrap();
-                log::trace!("Display buffer 1 marked not ready");
-                self.buffer0_ready.set_high().unwrap();
-                log::trace!("Display buffer 0 marked ready");
-            }
-        }
-    }
-
     pub struct Display {
         base_addr: *mut u8,
         use_buffer1_next: bool,
@@ -107,6 +90,7 @@ mod buffer {
         buffer1_locked: Buffer1Locked,
         buffer0_ready: Buffer0Ready,
         buffer1_ready: Buffer1Ready,
+        display_buffer: Option<DisplayBuffer>,
     }
 
     static mut DISPLAY_TAKEN: bool = false;
@@ -137,6 +121,7 @@ mod buffer {
                             buffer1_locked,
                             buffer0_ready,
                             buffer1_ready,
+                            display_buffer: None,
                         })
                     } else {
                         None
@@ -153,6 +138,7 @@ mod buffer {
                 buffer1_locked: Buffer1Locked::steal(),
                 buffer0_ready: Buffer0Ready::steal(),
                 buffer1_ready: Buffer1Ready::steal(),
+                display_buffer: None,
             }
         }
     }
@@ -165,23 +151,41 @@ mod buffer {
             DisplayBuffer {
                 buffer,
                 is_buffer1: upper,
-                buffer0_ready: &mut self.buffer0_ready,
-                buffer1_ready: &mut self.buffer1_ready,
             }
         }
 
-        pub async fn get_buffer(&mut self) -> DisplayBuffer {
-            let use_buffer1_next = self.use_buffer1_next;
-            self.use_buffer1_next = !use_buffer1_next;
-            if use_buffer1_next {
-                log::trace!("Waiting for display buffer 1 to be unlocked");
-                let _ = self.buffer1_locked.wait_for_low().await;
-            } else {
-                log::trace!("Waiting for display buffer 0 to be unlocked");
-                let _ = self.buffer0_locked.wait_for_low().await;
+        pub async fn get_buffer(&mut self) -> &mut DisplayBuffer {
+            if self.display_buffer.is_none() {
+                let use_buffer1_next = self.use_buffer1_next;
+                self.use_buffer1_next = !use_buffer1_next;
+                if use_buffer1_next {
+                    log::trace!("Waiting for display buffer 1 to be unlocked");
+                    let _ = self.buffer1_locked.wait_for_low().await;
+                } else {
+                    log::trace!("Waiting for display buffer 0 to be unlocked");
+                    let _ = self.buffer0_locked.wait_for_low().await;
+                }
+                log::trace!("Got display buffer");
+                self.display_buffer = Some(self._get_buffer(use_buffer1_next));
             }
-            log::trace!("Got display buffer");
-            self._get_buffer(use_buffer1_next)
+            self.display_buffer.as_mut().unwrap()
+        }
+
+        pub fn flush(&mut self) {
+            if let Some(display_buffer) = self.display_buffer.take() {
+                core::sync::atomic::fence(core::sync::atomic::Ordering::Release); // Ensure writes complete
+                if display_buffer.is_buffer1 {
+                    let _ = self.buffer0_ready.set_low().unwrap();
+                    log::trace!("Display buffer 0 marked not ready");
+                    self.buffer1_ready.set_high().unwrap();
+                    log::trace!("Display buffer 1 marked ready");
+                } else {
+                    let _ = self.buffer1_ready.set_low().unwrap();
+                    log::trace!("Display buffer 1 marked not ready");
+                    self.buffer0_ready.set_high().unwrap();
+                    log::trace!("Display buffer 0 marked ready");
+                }
+            }
         }
     }
 }
