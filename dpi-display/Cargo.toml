@@ -13,7 +13,7 @@ mpfs-hal = { path = "../mpfs-hal", default-features = false, features = [
 ] }
 
 critical-section = { version = "1.2", features = ["restore-state-u8"] }
-
+embedded-graphics = { version = "0.8", optional = true }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
 embassy-time = { path = "../../external/embassy/embassy-time" }
@@ -23,3 +23,4 @@ paste = "1.0"
 [features]
 default = ["resolution-800x480"]
 resolution-800x480 = []
+embedded-graphics = ["dep:embedded-graphics"]

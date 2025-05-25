@@ -9,7 +9,7 @@ use dpi_display::*;
 use mpfs_hal::{pac, Peripheral};
 
 fn generate_test_data() -> Vec<u8> {
-    let mut test_data: Vec<u8> = vec![0; BUFFER_SIZE * 2];
+    let mut test_data: Vec<u8> = vec![0; BUFFER_SIZE_BYTES * 2];
     let mut i = 0;
     // write 2 buffers worth of data
     while i < 144000 * 2 {
@@ -74,20 +74,22 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     let mut line_offset = 0;
 
     loop {
-        let mut buffer = display.get_buffer().await;
+        let buffer = display.get_buffer().await;
         let bytes_per_line = WIDTH * 3;
 
         // Calculate starting position in test data
         let start_pos = (line_offset * bytes_per_line) as usize;
 
-        if start_pos + BUFFER_SIZE <= test_data.len() {
+        if start_pos + BUFFER_SIZE_BYTES <= test_data.len() {
             // If we can copy in one go
-            buffer.as_slice()[..].copy_from_slice(&test_data[start_pos..start_pos + BUFFER_SIZE]);
+            buffer.as_u8_slice()[..]
+                .copy_from_slice(&test_data[start_pos..start_pos + BUFFER_SIZE_BYTES]);
         } else {
             // Need to wrap around - do it in two copies
             let first_part = test_data.len() - start_pos;
-            buffer.as_slice()[..first_part].copy_from_slice(&test_data[start_pos..]);
-            buffer.as_slice()[first_part..].copy_from_slice(&test_data[..BUFFER_SIZE - first_part]);
+            buffer.as_u8_slice()[..first_part].copy_from_slice(&test_data[start_pos..]);
+            buffer.as_u8_slice()[first_part..]
+                .copy_from_slice(&test_data[..BUFFER_SIZE_BYTES - first_part]);
         }
 
         line_offset = (line_offset + 1) % (test_data.len() / bytes_per_line);
@@ -99,6 +101,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 async fn hart2_main(_spawner: embassy_executor::Spawner) {
     mpfs_hal::log_task().await;
 }
+
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Debug);

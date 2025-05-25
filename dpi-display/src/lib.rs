@@ -1,5 +1,10 @@
 #![no_std]
 
+#[cfg(feature = "embedded-graphics")]
+mod embedded_graphics;
+#[cfg(feature = "embedded-graphics")]
+pub use embedded_graphics::*;
+
 #[cfg(feature = "resolution-800x480")]
 mod resolution {
     pub const WIDTH: usize = 800;
@@ -7,11 +12,50 @@ mod resolution {
 }
 
 pub use resolution::*;
-pub const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3; // 3 bytes per pixel
-const BUFFER_SEPARATION: usize = BUFFER_SIZE;
+pub const BUFFER_SIZE: usize = WIDTH * HEIGHT; // In pixels
+pub const BUFFER_SIZE_BYTES: usize = BUFFER_SIZE * 3; // In bytes; 3 bytes per pixel
+pub const BUFFER_SEPARATION: usize = BUFFER_SIZE_BYTES; // In bytes
 
 pub fn init() {
     mpfs_hal::gpio::init();
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pixel {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl Pixel {
+    pub const BLACK: Self = Self { r: 0, g: 0, b: 0 };
+    pub const WHITE: Self = Self {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    pub const RED: Self = Self { r: 255, g: 0, b: 0 };
+    pub const GREEN: Self = Self { r: 0, g: 255, b: 0 };
+    pub const BLUE: Self = Self { r: 0, g: 0, b: 255 };
+    pub const YELLOW: Self = Self {
+        r: 255,
+        g: 255,
+        b: 0,
+    };
+    pub const CYAN: Self = Self {
+        r: 0,
+        g: 255,
+        b: 255,
+    };
+    pub const MAGENTA: Self = Self {
+        r: 255,
+        g: 0,
+        b: 255,
+    };
+
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
 }
 
 // Inputs/outputs for display synchronization
@@ -52,34 +96,30 @@ mod buffer {
     use embedded_hal::digital::OutputPin;
     use embedded_hal_async::digital::Wait;
 
-    pub struct DisplayBuffer<'a> {
-        buffer: &'static mut [u8],
+    pub struct DisplayBuffer {
+        buffer: &'static mut [Pixel],
         is_buffer1: bool,
-        buffer0_ready: &'a mut Buffer0Ready,
-        buffer1_ready: &'a mut Buffer1Ready,
     }
 
-    impl<'a> DisplayBuffer<'a> {
-        pub fn as_slice(&mut self) -> &mut [u8] {
+    impl DisplayBuffer {
+        pub fn as_slice(&mut self) -> &mut [Pixel] {
             self.buffer
         }
 
-        pub fn set_pixel(&mut self, x: usize, y: usize, color: (u8, u8, u8)) {
-            let index = (y * WIDTH + x) * 3;
-            self.buffer[index] = color.0;
-            self.buffer[index + 1] = color.1;
-            self.buffer[index + 2] = color.2;
+        pub fn as_u8_slice(&mut self) -> &mut [u8] {
+            unsafe { slice::from_raw_parts_mut(self.buffer as *mut _ as *mut u8, BUFFER_SIZE * 3) }
+        }
+
+        pub fn set_pixel(&mut self, x: usize, y: usize, color: Pixel) {
+            self.buffer[y * WIDTH + x] = color;
         }
 
         // Set a pixel at a specific pixel index
         //
         // I.e. `set_pixel_at_index(10 + 10 * WIDTH, (255, 0, 0))`
         // will set the pixel at (10, 10) to red
-        pub fn set_pixel_at_index(&mut self, index: usize, color: (u8, u8, u8)) {
-            let index = index * 3;
-            self.buffer[index] = color.0;
-            self.buffer[index + 1] = color.1;
-            self.buffer[index + 2] = color.2;
+        pub fn set_pixel_at_index(&mut self, index: usize, color: Pixel) {
+            self.buffer[index] = color;
         }
     }
 
@@ -146,8 +186,9 @@ mod buffer {
     impl Display {
         fn _get_buffer(&mut self, upper: bool) -> DisplayBuffer {
             let offset = if upper { BUFFER_SEPARATION } else { 0 };
-            let buffer =
-                unsafe { slice::from_raw_parts_mut(self.base_addr.add(offset), BUFFER_SIZE) };
+            let buffer = unsafe {
+                slice::from_raw_parts_mut(self.base_addr.add(offset) as *mut Pixel, BUFFER_SIZE)
+            };
             DisplayBuffer {
                 buffer,
                 is_buffer1: upper,
@@ -169,6 +210,10 @@ mod buffer {
                 self.display_buffer = Some(self._get_buffer(use_buffer1_next));
             }
             self.display_buffer.as_mut().unwrap()
+        }
+
+        pub fn maybe_get_buffer(&mut self) -> Option<&mut DisplayBuffer> {
+            self.display_buffer.as_mut()
         }
 
         pub fn flush(&mut self) {

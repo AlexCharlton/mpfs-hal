@@ -13,8 +13,9 @@ mpfs-hal = { path = "../../mpfs-hal", default-features = false, features = [
     "beaglev-fire-no-cape",
 ] }
 mpfs-hal-embassy = { path = "../../mpfs-hal-embassy" }
-dpi-display = { path = "../" }
+dpi-display = { path = "../", features = ["embedded-graphics"] }
 
+embedded-graphics = { version = "0.8" }
 embassy-time = { path = "../../../external/embassy/embassy-time" }
 embassy-executor = { path = "../../../external/embassy/embassy-executor" }
 embedded-hal = "1.0"
