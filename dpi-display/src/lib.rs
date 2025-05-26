@@ -18,6 +18,11 @@ pub const BUFFER_SEPARATION: usize = BUFFER_SIZE_BYTES; // In bytes
 
 pub fn init() {
     mpfs_hal::gpio::init();
+    // Zero the buffer memory
+    let buffer = unsafe {
+        core::slice::from_raw_parts_mut(mpfs_hal::pac::heap_end() as *mut u8, BUFFER_SIZE_BYTES * 2)
+    };
+    buffer.fill(0);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

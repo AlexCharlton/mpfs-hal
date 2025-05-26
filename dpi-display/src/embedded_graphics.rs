@@ -1,4 +1,6 @@
-use embedded_graphics::pixelcolor::raw::RawU24;
+use embedded_graphics::pixelcolor::{
+    raw::RawU24, Bgr555, Bgr565, Bgr666, Bgr888, BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
+};
 use embedded_graphics::prelude::*;
 
 pub enum DrawError {
@@ -57,4 +59,145 @@ impl OriginDimensions for super::Display {
 
 impl PixelColor for super::Pixel {
     type Raw = RawU24;
+}
+
+// To embedded-graphics Colors
+impl From<super::Pixel> for Rgb888 {
+    fn from(color: super::Pixel) -> Self {
+        Rgb888::new(color.r, color.g, color.b)
+    }
+}
+
+impl From<super::Pixel> for Rgb666 {
+    fn from(color: super::Pixel) -> Self {
+        Rgb666::new(color.r, color.g, color.b)
+    }
+}
+
+impl From<super::Pixel> for Rgb565 {
+    fn from(color: super::Pixel) -> Self {
+        Rgb565::new(color.r, color.g, color.b)
+    }
+}
+
+impl From<super::Pixel> for Rgb555 {
+    fn from(color: super::Pixel) -> Self {
+        Rgb555::new(color.r, color.g, color.b)
+    }
+}
+
+impl From<super::Pixel> for Bgr888 {
+    fn from(color: super::Pixel) -> Self {
+        Bgr888::new(color.b, color.g, color.r)
+    }
+}
+
+impl From<super::Pixel> for Bgr666 {
+    fn from(color: super::Pixel) -> Self {
+        Bgr666::new(color.b, color.g, color.r)
+    }
+}
+
+impl From<super::Pixel> for Bgr565 {
+    fn from(color: super::Pixel) -> Self {
+        Bgr565::new(color.b, color.g, color.r)
+    }
+}
+
+impl From<super::Pixel> for Bgr555 {
+    fn from(color: super::Pixel) -> Self {
+        Bgr555::new(color.b, color.g, color.r)
+    }
+}
+
+// From embedded-graphics Colors
+impl From<Rgb888> for super::Pixel {
+    fn from(color: Rgb888) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Rgb565> for super::Pixel {
+    fn from(color: Rgb565) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Rgb666> for super::Pixel {
+    fn from(color: Rgb666) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Rgb555> for super::Pixel {
+    fn from(color: Rgb555) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Bgr888> for super::Pixel {
+    fn from(color: Bgr888) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Bgr565> for super::Pixel {
+    fn from(color: Bgr565) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Bgr666> for super::Pixel {
+    fn from(color: Bgr666) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<Bgr555> for super::Pixel {
+    fn from(color: Bgr555) -> Self {
+        super::Pixel {
+            r: color.r(),
+            g: color.g(),
+            b: color.b(),
+        }
+    }
+}
+
+impl From<BinaryColor> for super::Pixel {
+    fn from(color: BinaryColor) -> Self {
+        let value = if color.is_on() { 255 } else { 0 };
+        super::Pixel {
+            r: value,
+            g: value,
+            b: value,
+        }
+    }
 }

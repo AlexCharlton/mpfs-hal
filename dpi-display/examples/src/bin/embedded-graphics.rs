@@ -22,12 +22,11 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
 
     let mut display = Display::take().unwrap();
-    let fill = PrimitiveStyle::with_fill(Pixel::BLUE);
-
     // Make sure the next buffer is available
     let _ = display.get_buffer().await;
 
-    // Clear the screen
+    // Set a blue background
+    let fill = PrimitiveStyle::with_fill(Pixel::BLUE);
     Rectangle::new(
         Point::new(0, 0),
         Size::new(dpi_display::WIDTH as u32, dpi_display::HEIGHT as u32),
@@ -36,7 +35,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     .draw(&mut display)
     .unwrap();
 
-    // Show smallest font with black font on white background (default value for fonts)
+    // Show smallest font
     Text::new(
         "Hello World! - default style 5x8",
         Point::new(15, 15),
@@ -45,11 +44,11 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
     .draw(&mut display)
     .unwrap();
 
-    // Show smallest font with white font on blue background
+    // Show smallest blue font on a white background
     let style = MonoTextStyleBuilder::new()
         .font(&FONT_5X8)
-        .text_color(Pixel::WHITE)
-        .background_color(Pixel::BLUE)
+        .text_color(Pixel::BLUE)
+        .background_color(Pixel::WHITE)
         .build();
 
     Text::new("Hello World! - inverse 5x8", Point::new(15, 30), style)
