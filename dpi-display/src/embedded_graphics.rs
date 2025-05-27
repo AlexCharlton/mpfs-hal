@@ -49,6 +49,15 @@ impl DrawTarget for super::Display {
 
         Ok(())
     }
+
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        let buffer = self.maybe_get_buffer();
+        if buffer.is_none() {
+            return Err(DrawError::BufferNotAvailable);
+        }
+        buffer.unwrap().as_slice().fill(color);
+        Ok(())
+    }
 }
 
 impl OriginDimensions for super::Display {
