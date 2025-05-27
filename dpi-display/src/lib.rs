@@ -11,7 +11,13 @@ mod resolution {
     pub const HEIGHT: usize = 480;
 }
 
+#[cfg(feature = "rotate-90")]
+pub use resolution::HEIGHT as WIDTH;
+#[cfg(feature = "rotate-90")]
+pub use resolution::WIDTH as HEIGHT;
+#[cfg(not(feature = "rotate-90"))]
 pub use resolution::*;
+
 pub const BUFFER_SIZE: usize = WIDTH * HEIGHT; // In pixels
 pub const BUFFER_SIZE_BYTES: usize = BUFFER_SIZE * 3; // In bytes; 3 bytes per pixel
 pub const BUFFER_SEPARATION: usize = BUFFER_SIZE_BYTES; // In bytes
@@ -115,8 +121,14 @@ mod buffer {
             unsafe { slice::from_raw_parts_mut(self.buffer as *mut _ as *mut u8, BUFFER_SIZE * 3) }
         }
 
+        #[cfg(not(feature = "rotate-90"))]
         pub fn set_pixel(&mut self, x: usize, y: usize, color: Pixel) {
             self.buffer[y * WIDTH + x] = color;
+        }
+
+        #[cfg(feature = "rotate-90")]
+        pub fn set_pixel(&mut self, x: usize, y: usize, color: Pixel) {
+            self.buffer[(WIDTH - x) * HEIGHT + y] = color;
         }
 
         // Set a pixel at a specific pixel index
