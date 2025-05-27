@@ -39,7 +39,7 @@ impl DrawTarget for super::Display {
         let buffer = buffer.unwrap();
         for Pixel(coord, color) in pixels.into_iter() {
             // Check if the pixel coordinates are out of bounds
-            if let (x @ 0..=super::WIDTH, y @ 0..=super::HEIGHT) =
+            if let (x @ 0..super::WIDTH, y @ 0..super::HEIGHT) =
                 (coord.x as usize, coord.y as usize)
             {
                 // Calculate the index in the framebuffer.
