@@ -128,7 +128,7 @@ mod buffer {
 
         #[cfg(feature = "rotate-90")]
         pub fn set_pixel(&mut self, x: usize, y: usize, color: Pixel) {
-            self.buffer[(WIDTH - x) * HEIGHT + y] = color;
+            self.buffer[(WIDTH - x - 1) * HEIGHT + y] = color;
         }
 
         // Set a pixel at a specific pixel index
@@ -253,3 +253,13 @@ mod buffer {
 }
 
 pub use buffer::*;
+
+#[cfg(feature = "embedded-temu")]
+impl embedded_temu::ColorInterpolate for Pixel {
+    fn interpolate(fg: Self, bg: Self, value: u8) -> Self {
+        let r = embedded_temu::util::interpolate_8bit_values(bg.r, fg.r, value);
+        let g = embedded_temu::util::interpolate_8bit_values(bg.g, fg.g, value);
+        let b = embedded_temu::util::interpolate_8bit_values(bg.b, fg.b, value);
+        Self::new(r, g, b)
+    }
+}
