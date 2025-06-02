@@ -599,74 +599,92 @@ impl<T: SpiPeripheral> Spi<T> {
             if word_count > 0 {
                 let words = data.as_ptr() as *mut u32;
 
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 32;
                 spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..(word_count as usize) {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Status check needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    spi.TX_DATA = (*words.add(i)).to_be();
-                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut spi.TX_DATA, (*words.add(i)).to_be());
+
+                    // Status and RX_DATA reads need to be volatile
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    *words.add(i) = spi.RX_DATA.to_be();
+                    *words.add(i) = core::ptr::read_volatile(&spi.RX_DATA).to_be();
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until transfer done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
 
             let data = &mut data[word_count as usize * 4..];
 
             if !data.is_empty() {
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 8;
                 spi.FRAMESUP = data.len() as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | (((data.len() as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
                         & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..data.len() {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Status check needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    spi.TX_DATA = data[i] as u32;
-                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut spi.TX_DATA, data[i] as u32);
+
+                    // Status and RX_DATA reads need to be volatile
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    data[i] = spi.RX_DATA as u8;
+                    data[i] = core::ptr::read_volatile(&spi.RX_DATA) as u8;
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until transfer done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
         }
 
