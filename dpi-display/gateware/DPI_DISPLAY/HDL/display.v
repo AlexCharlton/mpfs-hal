@@ -192,7 +192,7 @@ module display #(
     input  logic [ 1:0] fic1_rresp,
     input  logic        fic1_rlast,
     input  logic        fic1_rvalid
-);
+)  /* synthesis syn_hier = "hard" */;
 
 `ifdef TEST
   initial begin
@@ -460,63 +460,63 @@ module display #(
   logic [$clog2(NUM_LINES)-1:0] y_counter;
   logic [$clog2(NUM_PIXELS*3)-1:0] pixel_offset;
 
-  always_comb begin
+  always_ff @(posedge clk or negedge reset) begin
     if (!reset) begin
-      current_v_state = VSYNC;
-      current_h_state = HSYNC;
-      next_v_state = VSYNC;
-      next_h_state = HSYNC;
+      current_v_state <= VSYNC;
+      current_h_state <= HSYNC;
+      next_v_state <= VSYNC;
+      next_h_state <= HSYNC;
     end else begin
 
       if (current_v_state != next_v_state) begin
-        current_v_state = next_v_state;
+        current_v_state <= next_v_state;
       end else begin
         case (current_v_state)
           VSYNC: begin
             if (y_counter == V_SYNC_WIDTH) begin
-              next_v_state = V_BACK_PORCH;
+              next_v_state <= V_BACK_PORCH;
             end
           end
           V_BACK_PORCH: begin
             if (y_counter == V_SYNC_WIDTH + V_BACK_PORCH_WIDTH) begin
-              next_v_state = V_ADR;
+              next_v_state <= V_ADR;
             end
           end
           V_ADR: begin
             if (y_counter == V_SYNC_WIDTH + V_BACK_PORCH_WIDTH + V_PIXELS) begin
-              next_v_state = V_FRONT_PORCH;
+              next_v_state <= V_FRONT_PORCH;
             end
           end
           V_FRONT_PORCH: begin
             if (y_counter == NUM_LINES) begin
-              next_v_state = VSYNC;
+              next_v_state <= VSYNC;
             end
           end
         endcase
       end
 
       if (current_h_state != next_h_state) begin
-        current_h_state = next_h_state;
+        current_h_state <= next_h_state;
       end else begin
         case (current_h_state)
           HSYNC: begin
             if (x_counter == H_SYNC_WIDTH - 1) begin
-              next_h_state = H_BACK_PORCH;
+              next_h_state <= H_BACK_PORCH;
             end
           end
           H_BACK_PORCH: begin
             if (x_counter == H_SYNC_WIDTH + H_BACK_PORCH_WIDTH - 1) begin
-              next_h_state = H_ADR;
+              next_h_state <= H_ADR;
             end
           end
           H_ADR: begin
             if (x_counter == H_SYNC_WIDTH + H_BACK_PORCH_WIDTH + H_PIXELS - 1) begin
-              next_h_state = H_FRONT_PORCH;
+              next_h_state <= H_FRONT_PORCH;
             end
           end
           H_FRONT_PORCH: begin
             if (x_counter == LINE_CLK_COUNT - 1) begin
-              next_h_state = HSYNC;
+              next_h_state <= HSYNC;
             end
           end
         endcase
@@ -725,16 +725,19 @@ module display #(
             `UPDATE_BUFFER_USED_COUNT(fic1_buffer_used, fic1_write_pos, last_seen_fic1_write_pos);
 
             // Set colors
-            if (pixel_offset / H_PIXELS < V_PIXELS / 2) r <= 8'h00;
+            // Note that using pixel_offset - 1 causes a funky first-pixel for the test pattern,
+            // but I'm not sure how we can get tests to work otherwise. The first pixel being read
+            // *does* seem to be `pixel_offset=1`.
+            if ((pixel_offset - 1) / H_PIXELS < V_PIXELS / 2) r <= 8'h00;
             else r <= 8'hff;
 
-            if (pixel_offset % H_PIXELS < H_PIXELS / 4) begin
+            if ((pixel_offset - 1) % H_PIXELS < H_PIXELS / 4) begin
               g <= 8'h00;
               b <= 8'h00;
-            end else if (pixel_offset % H_PIXELS < H_PIXELS / 2) begin
+            end else if ((pixel_offset - 1) % H_PIXELS < H_PIXELS / 2) begin
               g <= 8'hff;
               b <= 8'h00;
-            end else if (pixel_offset % H_PIXELS < H_PIXELS * 3 / 4) begin
+            end else if ((pixel_offset - 1) % H_PIXELS < H_PIXELS * 3 / 4) begin
               g <= 8'h00;
               b <= 8'hff;
             end else begin
