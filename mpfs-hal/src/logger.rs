@@ -87,7 +87,7 @@ impl log::Log for MpfsLogger {
         let message = LogMessage {
             level: record.level(),
             args,
-            timestamp: unsafe { crate::pac::readmtime() },
+            timestamp: unsafe { crate::pac::readmcycle() / 600 }, // Convert to microseconds
         };
 
         let _ = LOG_CHANNEL.try_send(message);
