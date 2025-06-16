@@ -72,7 +72,12 @@ impl TimeDriver {
 
     fn _set_alarm(&self, interval: u64) {
         //let counter = interval.saturating_mul(TIMER_VS_MTIME_RATIO);
-        let counter = interval / MCYCLE_VS_TIMER_RATIO;
+        let mut counter = interval / MCYCLE_VS_TIMER_RATIO;
+        // Never set an alarm for 0 ticks
+        if counter == 0 {
+            counter = 1;
+        }
+
         let load_value_u = (counter >> 32) as u32;
         let load_value_l = counter as u32;
         unsafe {

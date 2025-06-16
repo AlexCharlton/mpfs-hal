@@ -11,7 +11,7 @@ mpfs-hal-embassy = { workspace = true }
 aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
-embassy-executor = { workspace = true, features = ["task-arena-size-81920"] }
+embassy-executor = { workspace = true, features = ["task-arena-size-1048576"] }
 embassy-usb = { workspace = true, features = ["log"] }
 embassy-usb-driver = { workspace = true }
 embedded-io = { workspace = true }
@@ -34,7 +34,10 @@ embassy-net = { workspace = true, features = [
     "proto-ipv6",
     "multicast",
 ] }
-rand = { version = "0.9", default-features = false, features = ["small_rng"] }
+rand = { version = "0.9", default-features = false, features = [
+    "small_rng",
+    "alloc",
+] }
 
 # SD example
 block-device-adapters = { version = "0.2", git = "https://github.com/MabezDev/embedded-fatfs.git" }
