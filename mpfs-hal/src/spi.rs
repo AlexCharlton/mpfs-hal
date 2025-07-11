@@ -247,13 +247,7 @@ impl<T: SpiPeripheral> embedded_hal::spi::SpiDevice for Spi<T> {
                         self.transfer_in_place(data)?;
                     }
                     Operation::DelayNs(ns) => {
-                        let now = pac::readmcycle();
-                        // Convert ns to ticks: ns * (600 MHz / 1000 MHz) = ns * 0.6
-                        // Round up to ensure we wait at least the requested time
-                        let ticks = (*ns * 3 + 4) / 5; // Equivalent to ceil(ns * 0.6)
-                        while pac::readmcycle() < now + ticks as u64 {
-                            core::hint::spin_loop();
-                        }
+                        pac::sleep_ms(*ns as u64 / 1000);
                     }
                 }
             }
@@ -274,7 +268,7 @@ impl<T: SpiPeripheral> Spi<T> {
             return Ok(());
         }
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
-        log::debug!(
+        log::trace!(
             "Writing to SPI {:x?}. Buffer aligned: {}; Byte count: {}",
             data,
             buffer_aligned,
@@ -289,66 +283,76 @@ impl<T: SpiPeripheral> Spi<T> {
                 // Transfer 32-bit aligned words
                 let words = data.as_ptr() as *const u32;
 
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 32;
                 spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..(word_count as usize) {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    spi.TX_DATA = (*words.add(i)).to_be();
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut spi.TX_DATA, (*words.add(i)).to_be());
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until the transfer is done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
 
             let data = &data[word_count as usize * 4..];
 
             if !data.is_empty() {
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 8;
                 spi.FRAMESUP = data.len() as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | (((data.len() as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
                         & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..data.len() {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    spi.TX_DATA = data[i] as u32;
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut spi.TX_DATA, data[i] as u32);
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until the transfer is done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
         }
         Ok(())
@@ -360,7 +364,7 @@ impl<T: SpiPeripheral> Spi<T> {
         }
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
 
-        log::debug!(
+        log::trace!(
             "Reading from SPI. Buffer aligned: {}; Byte count: {}",
             buffer_aligned,
             data.len()
@@ -372,74 +376,90 @@ impl<T: SpiPeripheral> Spi<T> {
             if word_count > 0 {
                 let words = data.as_ptr() as *mut u32;
 
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 32;
                 spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..(word_count as usize) {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    spi.TX_DATA = 0xFFFFFFFF;
-                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut spi.TX_DATA, 0xFFFFFFFF);
+                    // Status and RX_DATA reads need to be volatile
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    *words.add(i) = spi.RX_DATA.to_be();
+                    *words.add(i) = core::ptr::read_volatile(&spi.RX_DATA).to_be();
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until the transfer is done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
 
             let data = &mut data[word_count as usize * 4..];
 
             if !data.is_empty() {
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 8;
                 spi.FRAMESUP = data.len() as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | (((data.len() as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
                         & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..data.len() {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    spi.TX_DATA = 0xFFFFFFFF;
-                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut spi.TX_DATA, 0xFFFFFFFF);
+                    // Status and RX_DATA reads need to be volatile
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    data[i] = spi.RX_DATA as u8;
+                    data[i] = core::ptr::read_volatile(&spi.RX_DATA) as u8;
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until the transfer is done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -454,7 +474,7 @@ impl<T: SpiPeripheral> Spi<T> {
             && read.as_ptr().align_offset(4) == 0
             && (write.len() > 3 || read.len() > 3);
 
-        log::debug!(
+        log::trace!(
             "Transferring from SPI. Read len: {}; Write: {:x?}; Buffer aligned: {}",
             read.len(),
             write,
@@ -472,23 +492,28 @@ impl<T: SpiPeripheral> Spi<T> {
                 let tx_words = write.as_ptr() as *mut u32;
                 let rx_words = read.as_ptr() as *mut u32;
 
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 32;
                 spi.FRAMESUP = word_count as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | ((word_count << pac::spi::TXRXDFCOUNT_SHIFT) & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..(word_count as usize) {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
                     if tx_bytes_sent + 4 <= write.len() {
-                        spi.TX_DATA = (*tx_words.add(i)).to_be();
+                        // TX_DATA write needs to be volatile
+                        core::ptr::write_volatile(&mut spi.TX_DATA, (*tx_words.add(i)).to_be());
                         tx_bytes_sent += 4;
                     } else if tx_bytes_sent < write.len() {
                         let mut tx_data = 0x0;
@@ -502,14 +527,19 @@ impl<T: SpiPeripheral> Spi<T> {
                             tx_data <<= 8;
                             tx_data |= 0xFF;
                         }
-                        spi.TX_DATA = tx_data;
+                        // TX_DATA write needs to be volatile
+                        core::ptr::write_volatile(&mut spi.TX_DATA, tx_data);
                     } else {
-                        spi.TX_DATA = 0xFFFFFFFF;
+                        // TX_DATA write needs to be volatile
+                        core::ptr::write_volatile(&mut spi.TX_DATA, 0xFFFFFFFF);
                     }
-                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                    // Status and RX_DATA reads need to be volatile
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    let word = spi.RX_DATA;
+                    let word = core::ptr::read_volatile(&spi.RX_DATA);
                     if rx_bytes_received + 4 <= read.len() {
                         *rx_words.add(i) = word.to_be();
                         rx_bytes_received += 4;
@@ -522,15 +552,15 @@ impl<T: SpiPeripheral> Spi<T> {
                     }
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until the transfer is done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
 
             let write = &write[tx_bytes_sent..];
@@ -538,42 +568,50 @@ impl<T: SpiPeripheral> Spi<T> {
             let remaining_bytes = read.len().max(write.len());
 
             if remaining_bytes > 0 {
+                // Setup registers - single volatile write for initial setup
                 spi.FRAMESIZE = 8;
                 spi.FRAMESUP = remaining_bytes as u32 & pac::spi::BYTESUPPER_MASK;
-                spi.CONTROL = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
+                let control = (spi.CONTROL & !pac::spi::TXRXDFCOUNT_MASK)
                     | (((remaining_bytes as u32) << pac::spi::TXRXDFCOUNT_SHIFT)
                         & pac::spi::TXRXDFCOUNT_MASK);
-                spi.CONTROL |= pac::spi::CTRL_ENABLE_MASK;
-                // Flush the receive FIFO
-                while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK == 0 {
-                    let _ = spi.RX_DATA;
+                spi.CONTROL = control | pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+                // Flush the receive FIFO - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK) == 0 {
+                    let _ = core::ptr::read_volatile(&spi.RX_DATA);
                 }
 
                 for i in 0..remaining_bytes {
-                    // Wait until transmit FIFO is not full
-                    while spi.STATUS & pac::spi::TX_FIFO_FULL_MASK != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::TX_FIFO_FULL_MASK) != 0
+                    {
                         core::hint::spin_loop();
                     }
                     if i < write.len() {
-                        spi.TX_DATA = write[i] as u32;
+                        // TX_DATA write needs to be volatile
+                        core::ptr::write_volatile(&mut spi.TX_DATA, write[i] as u32);
                     }
-                    while spi.STATUS & pac::spi::RX_FIFO_EMPTY_MASK != 0 {
+                    // Status and RX_DATA reads need to be volatile
+                    while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::RX_FIFO_EMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
                     if i < read.len() {
-                        read[i] = spi.RX_DATA as u8;
+                        read[i] = core::ptr::read_volatile(&spi.RX_DATA) as u8;
                     }
                 }
 
-                // Wait until the transfer is done
-                while spi.STATUS & pac::spi::ACTIVE_MASK != 0 {
+                // Wait until the transfer is done - needs volatile read
+                while (core::ptr::read_volatile(&spi.STATUS) & pac::spi::ACTIVE_MASK) != 0 {
                     core::hint::spin_loop();
                 }
 
-                // Flush the FIFOs
+                // Reset state - single write is fine
                 spi.COMMAND |= pac::spi::TX_FIFO_RESET_MASK | pac::spi::RX_FIFO_RESET_MASK;
-                // Disable the SPI
                 spi.CONTROL &= !pac::spi::CTRL_ENABLE_MASK;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -586,7 +624,7 @@ impl<T: SpiPeripheral> Spi<T> {
         }
 
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
-        log::debug!(
+        log::trace!(
             "Transferring in place, buffer aligned? {}; Data: {:x?}",
             buffer_aligned,
             data
