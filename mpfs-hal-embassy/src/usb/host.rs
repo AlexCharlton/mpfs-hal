@@ -369,7 +369,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         Ok(read_size)
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut,
@@ -416,7 +416,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         })
         .await;
 
-        Ok(buf.len())
+        Ok(())
     }
 
     fn retarget_channel(
@@ -561,7 +561,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         Ok(read)
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {
@@ -613,7 +613,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         })
         .await;
 
-        Ok(buf.len())
+        Ok(())
     }
 }
 

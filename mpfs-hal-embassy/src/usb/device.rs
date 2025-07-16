@@ -17,7 +17,7 @@ static mut EP_OUT_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
     [const { None }; NUM_ENDPOINTS + 1];
 
 //------------------------------------------------------
-// Driver
+// MARK: Driver
 
 pub struct UsbDriver<'a> {
     speed: Speed,
@@ -229,7 +229,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
 }
 
 //------------------------------------------------------
-// EndpointOut
+// MARK: EndpointOut
 
 // Host -> Device
 pub struct EndpointOut<'a> {
@@ -317,7 +317,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
 }
 
 //------------------------------------------------------
-// EndpointIn
+// MARK: EndpointIn
 
 // Device -> Host
 pub struct EndpointIn<'a> {
@@ -422,7 +422,7 @@ fn configure_endpoint(direction: Direction, endpoint: usize) {
 }
 
 //------------------------------------------------------
-// ControlPipe
+// MARK: ControlPipe
 pub struct ControlPipe<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     max_packet_size: usize,
@@ -599,7 +599,7 @@ fn read_control_packet(buf: &mut [u8]) {
 }
 
 //------------------------------------------------------
-// Bus
+// MARK: Bus
 
 struct BusEvent {
     reset: bool,
@@ -757,7 +757,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
 }
 
 //------------------------------------------------------
-// MSS USB CIF Callbacks
+// MARK: MSS USB CIF Callbacks
 
 #[no_mangle]
 #[doc(hidden)]

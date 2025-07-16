@@ -11,7 +11,7 @@ mpfs-hal-embassy = { workspace = true }
 aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
-embassy-executor = { workspace = true, features = ["task-arena-size-1048576"] }
+embassy-executor = { workspace = true }
 embassy-usb = { workspace = true, features = ["log"] }
 embassy-usb-driver = { workspace = true }
 embedded-io = { workspace = true }
