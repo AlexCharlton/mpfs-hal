@@ -88,8 +88,7 @@ extern "C" fn u54_1() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
-        // Enable FPU
-        mstatus::set_fs(mstatus::FS::Initial);
+        init_fpu();
 
         // All other harts are put into wfi when they boot, so we can init_once from here
         init_once();
@@ -111,8 +110,7 @@ extern "C" fn u54_2() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
-        // Enable FPU
-        mstatus::set_fs(mstatus::FS::Initial);
+        init_fpu();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -128,8 +126,7 @@ extern "C" fn u54_3() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
-        // Enable FPU
-        mstatus::set_fs(mstatus::FS::Initial);
+        init_fpu();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -145,12 +142,22 @@ extern "C" fn u54_4() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
-        // Enable FPU
-        mstatus::set_fs(mstatus::FS::Initial);
+        init_fpu();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
 
         __hart4_entry();
+    }
+}
+
+fn init_fpu() {
+    unsafe {
+        // Enable FPU
+        mstatus::set_fs(mstatus::FS::Initial);
+        // Clear any pending exceptions
+        core::arch::asm!("csrwi fflags, 0");
+        // Clear FPU control and status register
+        core::arch::asm!("csrwi fcsr, 0");
     }
 }
