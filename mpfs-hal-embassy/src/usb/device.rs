@@ -789,7 +789,14 @@ extern "C" fn usbd_cep_setup(status: u8) {
             EP_OUT_CONTROLLER[0].as_mut().unwrap().state,
             EP_IN_CONTROLLER[0].as_mut().unwrap().state
         );
+
+        if EP_OUT_CONTROLLER[0].is_none() {
+            // We haven't initialized the USB device.
+            // This callback can be called even if the MPFS isn't intended to be a USB device (e.g. it's meant to be a host). Because of this, we just ignore it.
+            return;
+        }
     }
+
     // This is called in three cases:
     // 1. When the control endpoint is stalled
     // 2. When the control endpoint recieves a setup packet before the setup has completed
