@@ -168,6 +168,15 @@ impl UsbHostDriver for UsbHost {
             (*pac::USB).POWER &= !pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
             // Without this wait, the device becomes unhappy
             Timer::after(Duration::from_millis(40)).await;
+
+            for i in 0..NUM_ENDPOINTS + 1 {
+                EP_IN_CONTROLLER[i] = None;
+                EP_OUT_CONTROLLER[i] = None;
+            }
+            for i in 0..NUM_ENDPOINTS {
+                self.in_channels_allocated.borrow_mut()[i] = EndpointDetails::default();
+                self.out_channels_allocated.borrow_mut()[i] = EndpointDetails::default();
+            }
         }
     }
 
@@ -178,7 +187,7 @@ impl UsbHostDriver for UsbHost {
         pre: bool,
     ) -> Result<Self::Channel<T, D>, HostError> {
         assert!(!pre, "Low speed devices aren't supported");
-        log::trace!(
+        log::debug!(
             "USBH alloc_channel {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
             addr,
             endpoint,
