@@ -3,7 +3,7 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
-use embassy_futures::select;
+use embassy_futures::select::select;
 use embassy_time::{with_timeout, Duration, Timer};
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel,
@@ -117,7 +117,7 @@ impl UsbHostDriver for UsbHost {
                         })
                     });
 
-                    let event = select::select(session_future, event_future).await;
+                    let event = select(session_future, event_future).await;
                     if event.is_second() {
                         log::debug!("USB connected");
                         Timer::after(Duration::from_millis(100)).await;
@@ -288,6 +288,8 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         T: channel::IsControl,
         D: channel::IsIn,
     {
+        const MAX_RETRIES: usize = 3;
+
         log::trace!(
             "USBH control_in: setup={:?}; setup_bytes={:x?}",
             setup,
@@ -317,8 +319,9 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         setup_buffer
             .as_mut_slice()
             .copy_from_slice(setup.as_bytes());
+        let mut retries = 0;
         let read_size = loop {
-            if let Ok(res) = with_timeout(Duration::from_millis(1000), async {
+            if let Ok(res) = with_timeout(Duration::from_millis(100), async {
                 unsafe {
                     pac::MSS_USBH_CIF_load_tx_fifo(
                         0,
@@ -350,7 +353,12 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             {
                 break res;
             } else {
-                log::warn!("control_in: timeout, retrying");
+                retries += 1;
+                if retries < MAX_RETRIES {
+                    log::warn!("control_in: timeout, retrying");
+                } else {
+                    return Err(ChannelError::Timeout);
+                }
             }
         }?;
 
@@ -689,6 +697,9 @@ extern "C" fn usbh_cep(status: u8) {
                 );
                 if in_ep.state == EndpointState::Setup || in_ep.state == EndpointState::Rx {
                     in_ep.state = EndpointState::RxComplete(Err(ChannelError::BadResponse));
+                    if let Some(waker) = in_ep.waker.as_mut() {
+                        waker.wake_by_ref();
+                    }
                     return;
                 }
             }
