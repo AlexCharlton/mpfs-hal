@@ -30,6 +30,7 @@ static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
 
 #[derive(Default)]
 pub struct UsbHost {
+    connected: Rc<RefCell<bool>>,
     in_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
     out_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
     fs_only: bool,
@@ -87,6 +88,11 @@ impl UsbHost {
             pac::MSS_USBH_CIF_init();
         }
     }
+
+    /// Returns true if the USB host is connected to a device
+    pub fn is_connected(&self) -> bool {
+        *self.connected.borrow()
+    }
 }
 
 impl UsbHostDriver for UsbHost {
@@ -134,6 +140,7 @@ impl UsbHostDriver for UsbHost {
                         critical_section::with(|_| {
                             CONNECTED = event;
                         });
+                        *self.connected.borrow_mut() = true;
                         return event;
                     }
                 } else {
@@ -151,7 +158,9 @@ impl UsbHostDriver for UsbHost {
                         })
                     })
                     .await;
+                    *self.connected.borrow_mut() = false;
                     log::debug!("USB disconnected");
+
                     return embassy_usb_driver::host::DeviceEvent::Disconnected;
                 }
             }

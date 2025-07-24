@@ -41,7 +41,9 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         log::info!("[UAC] Terminal Name: {:?}", terminal_name);
 
         let mut out = uac.output().unwrap();
-        out.output_stream(generate_sine_wave).await.unwrap();
+        out.output_stream(|| usbhost.is_connected(), generate_sine_wave)
+            .await
+            .unwrap();
     } else {
         log::error!("Failed to register UAC");
     }
