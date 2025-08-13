@@ -229,8 +229,8 @@ impl<T: SpiPeripheral> embedded_hal::spi::SpiDevice for Spi<T> {
 
         unsafe {
             pac::MSS_SPI_set_slave_select(
-                &raw mut pac::g_mss_spi0_lo,
-                pac::__mss_spi_slave_t_MSS_SPI_SLAVE_0,
+                self.peripheral.address(),
+                self.peripheral.slave_num() as u32,
             );
             for operation in operations {
                 match operation {
@@ -252,8 +252,8 @@ impl<T: SpiPeripheral> embedded_hal::spi::SpiDevice for Spi<T> {
                 }
             }
             pac::MSS_SPI_clear_slave_select(
-                &raw mut pac::g_mss_spi0_lo,
-                pac::__mss_spi_slave_t_MSS_SPI_SLAVE_0,
+                self.peripheral.address(),
+                self.peripheral.slave_num() as u32,
             );
         }
         mutex.release(lock);
