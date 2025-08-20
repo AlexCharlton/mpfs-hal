@@ -6,9 +6,21 @@ use embedded_io::Write;
 static mut UART: Option<UartTx<UartTx0>> = None;
 static MUTEX: Mutex = Mutex::new();
 
-// TODO: Should it be possible to configure the UART?
 pub(crate) fn init_print() {
-    unsafe { UART = Some(UartTx::new(UartTx0::take().unwrap(), UartConfig::default())) }
+    let baud_rate = match option_env!("DEBUG_UART_BAUD_RATE") {
+        Some(size) => u32::from_str_radix(size, 10)
+            .expect("DEBUG_UART_BAUD_RATE must be a valid decimal number"),
+        None => 115_200,
+    };
+    unsafe {
+        UART = Some(UartTx::new(
+            UartTx0::take().unwrap(),
+            UartConfig {
+                baud_rate: BaudRate::Custom(baud_rate),
+                ..Default::default()
+            },
+        ))
+    }
 }
 
 pub struct Printer;

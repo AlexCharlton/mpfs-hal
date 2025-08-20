@@ -6,3 +6,4 @@ rustflags = ["-C", "link-arg=-Tlinker.ld", "-C", "link-arg=--gc-sections"]
 
 [env]
 MPFS_RESERVED_MEMORY_SIZE = "400000" # 4MB for dpi-display
+DEBUG_UART_BAUD_RATE = "115200"      # Default value
