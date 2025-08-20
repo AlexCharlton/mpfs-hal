@@ -13,6 +13,7 @@ elf = "0.7"
 serialport = "4.2"
 crossterm = "0.27"
 sysinfo = "0.32"
+clap = { version = "4.5", features = ["derive"] }
 windows = { version = "0.58", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_WindowsProgramming",
