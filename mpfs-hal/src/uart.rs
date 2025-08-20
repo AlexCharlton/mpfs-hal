@@ -176,6 +176,7 @@ pub enum BaudRate {
     Baud230400,
     Baud460800,
     Baud921600,
+    Custom(u32),
 }
 
 impl BaudRate {
@@ -195,6 +196,7 @@ impl BaudRate {
             BaudRate::Baud230400 => pac::MSS_UART_230400_BAUD,
             BaudRate::Baud460800 => pac::MSS_UART_460800_BAUD,
             BaudRate::Baud921600 => pac::MSS_UART_921600_BAUD,
+            BaudRate::Custom(value) => *value,
         }
     }
 }
