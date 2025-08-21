@@ -18,3 +18,4 @@ windows = { version = "0.58", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_WindowsProgramming",
 ] }
+ymodem = { version = "0.1", git = "https://github.com/AlexCharlton/xymodem.rs" }

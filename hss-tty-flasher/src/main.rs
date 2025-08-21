@@ -1,3 +1,9 @@
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::path::Path;
+use std::sync::mpsc;
+use std::time::Duration;
+
 use clap::{Parser, ValueEnum};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{
@@ -6,10 +12,6 @@ use crossterm::{
     execute,
     terminal::{self, Clear, ClearType},
 };
-use std::io::{self, Read, Write};
-use std::path::Path;
-use std::sync::mpsc;
-use std::time::Duration;
 
 mod drives;
 use drives::*;
@@ -51,9 +53,13 @@ enum FlashState {
     HssInterruptPrompt,
     UsbHostConnecting,
     UsbHostConnected,
-    UartFlashing,
+    UartInit,
+    UartSend,
+    UartSent,
+    UartWriting,
     Flashing,
     FlashComplete,
+    FlashFailed,
     Unknown,
 }
 
@@ -86,9 +92,13 @@ impl FlashState {
             FlashState::HssInterruptPrompt => "Interrupting boot",
             FlashState::UsbHostConnecting => "USB Host Connecting",
             FlashState::UsbHostConnected => "USB Host Connected",
-            FlashState::UartFlashing => "UART Flashing",
+            FlashState::UartInit => "UART Init",
+            FlashState::UartSend => "UART Send",
+            FlashState::UartSent => "UART Sent",
+            FlashState::UartWriting => "UART Writing",
             FlashState::Flashing => "Flashing",
             FlashState::FlashComplete => "Flash Complete",
+            FlashState::FlashFailed => "Flash Failed",
             FlashState::Unknown => "Unknown",
         }
     }
@@ -161,6 +171,12 @@ fn spawn_reader_thread(
                 current_state = new_state;
             }
 
+            if current_state == FlashState::UartSend {
+                // All serial port control needs to be handled in the main thread
+                std::thread::sleep(Duration::from_millis(1));
+                continue;
+            }
+
             if let Ok(bytes_read) = port.read(&mut serial_buf) {
                 if bytes_read > 0 {
                     // Write raw bytes to log file
@@ -179,7 +195,7 @@ fn spawn_reader_thread(
 
                     // Check for the problematic sequence and insert additional escape sequence if needed
                     let mut modified_data = Vec::new();
-                    // A move cusor left sequence
+                    // A move cursor left sequence
                     let target_sequence = [0x1B, 0x5B, 0x44];
 
                     let mut i = 0;
@@ -221,7 +237,6 @@ fn spawn_reader_thread(
                                     }
                                 }
                             }
-                            tx.send(current_state).unwrap();
                             serial_log.push(current_line.clone());
                             current_line.clear();
                         } else {
@@ -254,28 +269,46 @@ fn handle_line(
     if line.contains("Press a key to enter CLI, ESC to skip")
         && current_state != FlashState::HssBootedPostFlash
     {
-        port.write_all("c\r\n".as_bytes())?;
+        port.write_all("*\n".as_bytes())?;
         return Ok(FlashState::HssInterruptPrompt);
     }
-    if line.contains("Type HELP for list of commands") {
-        port.write_all("mmc\r\n".as_bytes())?;
+    if line.contains("Type HELP for list of commands")
+        && current_state == FlashState::HssInterruptPrompt
+    {
+        port.write_all("mmc\n".as_bytes())?;
         match flash_method {
             FlashMethod::Usb => {
-                port.write_all("usbdmsc\r\n".as_bytes())?;
+                port.write_all("usbdmsc\n".as_bytes())?;
                 return Ok(FlashState::UsbHostConnecting);
             }
             FlashMethod::Uart => {
-                port.write_all("program\r\n".as_bytes())?;
-                return Ok(current_state); // Wait for the device to send a response
+                port.write_all("ymodem\n".as_bytes())?;
+                return Ok(FlashState::UartInit);
             }
         }
     }
-    if line.contains("USB Host disconnected...") {
-        port.write_all("boot\r\n".as_bytes())?;
+    if line.contains("USB Host disconnected...")
+        && (current_state == FlashState::Flashing
+            || current_state == FlashState::UsbHostConnected
+            || current_state == FlashState::UsbHostConnecting)
+    {
+        port.write_all("boot\n".as_bytes())?;
         return Ok(FlashState::FlashComplete);
     }
-    if line.contains("PROGRAM command: Waiting for data over UART...") {
-        return Ok(FlashState::UartFlashing);
+    // UART programming mode
+    if line.contains("Select a number:") && current_state == FlashState::UartInit {
+        // "YMODEM Receive" - Also performs MMC initialization
+        port.write_all("3".as_bytes())?;
+        return Ok(FlashState::UartSend);
+    } else if line.contains("Select a number:") && current_state == FlashState::UartSent {
+        // "MMC Write"
+        port.write_all("5".as_bytes())?;
+        return Ok(FlashState::UartWriting);
+    } else if line.contains("Select a number:") && current_state == FlashState::UartWriting {
+        // "Quit"
+        port.write_all("6".as_bytes())?;
+        port.write_all("reset\n".as_bytes())?; // For some reason, "boot" doesn't work here
+        return Ok(FlashState::FlashComplete);
     }
     Ok(current_state)
 }
@@ -342,6 +375,19 @@ fn setup_serial_port(
     serialport::new(port_name, baud_rate)
         .timeout(Duration::from_millis(10))
         .open()
+}
+
+fn get_image_path(
+    file_path: &str,
+    log_writer: &mut std::io::BufWriter<std::fs::File>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let image_path = if !file_path.ends_with(".img") {
+        log_writer.write_all(format!("Converting ELF {:?} to image\n", file_path).as_bytes())?;
+        image_gen::generate_hss_payload(file_path)?
+    } else {
+        file_path.to_string()
+    };
+    Ok(image_path)
 }
 
 #[derive(Parser)]
@@ -411,14 +457,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Check for flash state updates (non-blocking)
         if let Ok(new_state) = rx.try_recv() {
             flash_state = new_state;
+            log_writer.write_all(format!("set flash state to {:?}\n", flash_state).as_bytes())?;
             if flash_state == FlashState::HssInterruptPrompt && flash_method == FlashMethod::Usb {
                 drives = list_removable_drives();
                 check_drives = true;
                 log_writer.write_all(format!("Available drives: {:?}\n", drives).as_bytes())?;
-                log_writer.flush()?;
-            }
-            if flash_state == FlashState::UartFlashing {
-                log_writer.write_all("Entering UART programming mode\n".as_bytes())?;
                 log_writer.flush()?;
             }
         }
@@ -446,18 +489,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let drive_to_flash = new_drive.clone();
                 flash_state = FlashState::Flashing;
                 state_tx.send(flash_state)?;
-                let image_path = if !file_path.as_ref().unwrap().ends_with(".img") {
-                    log_writer.write_all(
-                        format!(
-                            "Converting ELF {:?} to image\n",
-                            file_path.as_ref().unwrap()
-                        )
-                        .as_bytes(),
-                    )?;
-                    image_gen::generate_hss_payload(file_path.as_ref().unwrap())?
-                } else {
-                    file_path.as_ref().unwrap().to_string()
-                };
+                let image_path = get_image_path(file_path.as_ref().unwrap(), &mut log_writer)?;
                 log_writer.write_all(
                     format!(
                         "Flashing Image {:?} to drive {:?}\n",
@@ -473,11 +505,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if flash_state == FlashState::UartFlashing {
-            port_writer.write_all(&[0xC0, 0xDE, 0xBA, 0xBE])?; // Magic bytes to start programming mode
-            port_writer.write_all(&[0xAA, 0, 0, 0])?; // Send length TODO
+        if flash_state == FlashState::UartSend {
+            // The reader thread is not reading the serial port at this point
+            log_writer.write_all(format!("Sending image over UART\n").as_bytes())?;
+            let image_path = get_image_path(file_path.as_ref().unwrap(), &mut log_writer)?;
+            let mut source = File::open(image_path)?;
+            let file_size = source.metadata()?.len();
 
-            flash_state = FlashState::FlashComplete; // TODO: We should wait for the device to send a response
+            // First, wait for the "Attempting to receive" message
+            // It starts with a newline and ends with a newline, so we'll wait for two newlines
+            // TODO: Should wait for the actual message
+            let mut newline_count = 0;
+            let mut read_buf = [0u8; 1];
+            while newline_count < 2 {
+                if let Ok(bytes_read) = port_writer.read(&mut read_buf) {
+                    if read_buf[0] == b'\n' {
+                        newline_count += 1;
+                    }
+                    if bytes_read > 0 {
+                        print!("{}", read_buf[0] as char);
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+            // Then send the image file
+            let mut ymodem = ymodem::ymodem::Ymodem::new();
+            match ymodem.send(
+                &mut port_writer,
+                &mut source,
+                "image.bin".to_string(),
+                file_size,
+            ) {
+                Ok(_) => {
+                    log_writer.write_all(format!("Image sent\n").as_bytes())?;
+                    flash_state = FlashState::UartSent;
+                }
+                Err(e) => {
+                    eprintln!("Error sending image: {:?}", e);
+                    flash_state = FlashState::FlashFailed;
+                }
+            }
+
             state_tx.send(flash_state)?;
         }
 
@@ -493,7 +562,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ..
                         } => {
                             mode = match mode {
-                                Mode::Terminal => Mode::Flash,
+                                Mode::Terminal => {
+                                    if flash_method == FlashMethod::Uart {
+                                        // We always want to alternate when using UART, since we issue the reset command
+                                        Mode::FlashAlternate
+                                    } else {
+                                        Mode::Flash
+                                    }
+                                }
                                 Mode::Flash => Mode::FlashAlternate,
                                 Mode::FlashAlternate => Mode::Terminal,
                                 _ => unreachable!(),
