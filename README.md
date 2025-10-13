@@ -3,7 +3,7 @@
 This repository contains a hardware abstraction layer for the Microchip PolarFire SoC, built on the Mirochip-provided [platform](https://github.com/polarfire-soc/platform), as well as [Embassy](https://github.com/embassy-rs/embassy) support and a TTY application which can flash images to a board that is using the [HSS](https://github.com/polarfire-soc/hss) bootloader.
 
 > [!NOTE]
-> This repository is a work in progress. See the crate descriptions below for details about what features are supported. Currently only the BeagleV-Fire board is targeted, but additional board support should be fairly straightforward. See https://github.com/AlexCharlton/mpfs-hal/issues/1 for a list of peripherals that do not yet have support.
+> This repository is a work in progress, and the [usbh](https://github.com/AlexCharlton/mpfs-hal/tree/usbh) branch represents the most up-to-date progress as well as several important fixes. It depends on a [fork of embassy](https://github.com/AlexCharlton/embassy) that has USB host support (see [PR](https://github.com/embassy-rs/embassy/pull/4321)), however.
 
 > [!TIP]
 > Using a more recent version of the HSS bootloader is highly recommended. DDR training on earlier versions hangs frequently. See the [**Gateware programming**](#gateware-programming) section for details about upgrading.
@@ -19,7 +19,7 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html) `SpiBus`)
 - Ethernet ([embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver`)
 - USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver`)
-- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/pull/3307)) in the works
+- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/pull/4321)) in the works
 
 > [!NOTE]
 > While the `mpfs-hal` crate implements some Embassy traits, it comes with no requirement to use Embassy. These traits were used in the absence of other async traits available in the ecosystem, and they come with the benefit of having USB/Ethernet stacks already implemented with [embassy-usb](https://docs.embassy.dev/embassy-usb/git/default/index.html) and [embassy-net](https://docs.embassy.dev/embassy-net/git/default/index.html) (both of which also do not need to be used with the Embassy executor, if so desired).
