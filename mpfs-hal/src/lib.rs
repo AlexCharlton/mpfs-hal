@@ -49,7 +49,7 @@ pub fn low_power_loop_forever() -> ! {
 //----------------------------------------------------------
 // Entry points
 
-extern "C" {
+unsafe extern "C" {
     fn __init_once();
     fn __init_once_embassy();
     fn __hart1_entry();
@@ -80,7 +80,7 @@ fn init_once() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_1() {
     unsafe {
         // Rest of hardware initialization
@@ -102,7 +102,7 @@ extern "C" fn u54_1() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_2() {
     unsafe {
         // Rest of hardware initialization
@@ -118,7 +118,7 @@ extern "C" fn u54_2() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_3() {
     unsafe {
         // Rest of hardware initialization
@@ -134,7 +134,7 @@ extern "C" fn u54_3() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_4() {
     unsafe {
         // Rest of hardware initialization

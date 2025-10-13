@@ -72,8 +72,9 @@ impl Pixel {
 // Inputs/outputs for display synchronization
 mod io {
     use mpfs_hal::{
-        gpio::{GpioPeripheral, GPIO1_10_OR_GPIO2_24_INT, GPIO1_11_OR_GPIO2_25_INT},
-        impl_gpio_pin, impl_input_peripheral, impl_output_peripheral, pac, Peripheral,
+        Peripheral,
+        gpio::{GPIO1_10_OR_GPIO2_24_INT, GPIO1_11_OR_GPIO2_25_INT, GpioPeripheral},
+        impl_gpio_pin, impl_input_peripheral, impl_output_peripheral, pac,
     };
 
     impl_gpio_pin!(BUFFER0_READY, GpioPeripheral::Mss(pac::GPIO2_LO), 26, NONE);
@@ -188,14 +189,16 @@ mod buffer {
         }
 
         unsafe fn steal() -> Self {
-            Self {
-                base_addr: mpfs_hal::pac::heap_end() as *mut u8,
-                use_buffer1_next: false,
-                buffer0_locked: Buffer0Locked::steal(),
-                buffer1_locked: Buffer1Locked::steal(),
-                buffer0_ready: Buffer0Ready::steal(),
-                buffer1_ready: Buffer1Ready::steal(),
-                display_buffer: None,
+            unsafe {
+                Self {
+                    base_addr: mpfs_hal::pac::heap_end() as *mut u8,
+                    use_buffer1_next: false,
+                    buffer0_locked: Buffer0Locked::steal(),
+                    buffer1_locked: Buffer1Locked::steal(),
+                    buffer0_ready: Buffer0Ready::steal(),
+                    buffer1_ready: Buffer1Ready::steal(),
+                    display_buffer: None,
+                }
             }
         }
     }

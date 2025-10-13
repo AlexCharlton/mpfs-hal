@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
-use embassy_executor::{raw, Spawner};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use embassy_executor::{Spawner, raw};
 
 use mpfs_hal::pac;
 
 static SIGNAL_WORK_THREAD_MODE: [AtomicBool; pac::MPFS_HAL_LAST_HART as usize] =
     [const { AtomicBool::new(false) }; pac::MPFS_HAL_LAST_HART as usize];
 
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 fn __pender(context: *mut ()) {
     #[cfg(feature = "debug-logs")]
     mpfs_hal::println_unguarded!("hart {} has work pending\n", context as usize + 1);

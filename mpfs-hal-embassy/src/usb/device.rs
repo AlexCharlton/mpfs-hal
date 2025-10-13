@@ -5,7 +5,7 @@ use embassy_usb_driver::{
     EndpointType, Event, Speed,
 };
 
-use mpfs_hal::{pac, Peripheral};
+use mpfs_hal::{Peripheral, pac};
 
 use super::common::*;
 
@@ -759,7 +759,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
 //------------------------------------------------------
 // MARK: MSS USB CIF Callbacks
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[doc(hidden)]
 #[allow(non_upper_case_globals)]
 pub static g_mss_usbd_cb: pac::mss_usbd_cb_t = pac::mss_usbd_cb_t {
@@ -799,8 +799,8 @@ extern "C" fn usbd_cep_setup(status: u8) {
 
     // This is called in three cases:
     // 1. When the control endpoint is stalled
-    // 2. When the control endpoint recieves a setup packet before the setup has completed
-    // 3. When the control endpoint recieves a normal setup packet
+    // 2. When the control endpoint receives a setup packet before the setup has completed
+    // 3. When the control endpoint receives a normal setup packet
     //
     // The CIF clears the PHY of the stall in the first case already, so there's nothing left to do
     // The other two we can handle the same (I think?)
@@ -831,17 +831,19 @@ extern "C" fn usbd_cep_setup(status: u8) {
 }
 
 unsafe fn rx_complete(num: usize, received_count: u32) {
-    critical_section::with(|_| {
-        EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
-            EndpointState::RxComplete(Ok(received_count as usize));
-    });
-    if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
-        .as_mut()
-        .unwrap()
-        .waker
-        .as_mut()
-    {
-        waker.wake_by_ref();
+    unsafe {
+        critical_section::with(|_| {
+            EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
+                EndpointState::RxComplete(Ok(received_count as usize));
+        });
+        if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
+            .as_mut()
+            .unwrap()
+            .waker
+            .as_mut()
+        {
+            waker.wake_by_ref();
+        }
     }
 }
 

@@ -91,7 +91,7 @@ fn generate_sine_wave(buffer: &mut [u8]) {
     }
 
     unsafe {
-        // Wrap phase so that floating point precision degredation doesn't cause phase to drift
+        // Wrap phase so that floating point precision degradation doesn't cause phase to drift
         if PHASE > TWO_PI {
             PHASE = PHASE % TWO_PI;
         }

@@ -18,7 +18,7 @@ pub use mpfs_hal_procmacros::{
 };
 pub use static_cell;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn __init_once_embassy() {
     time_driver::init();
 }

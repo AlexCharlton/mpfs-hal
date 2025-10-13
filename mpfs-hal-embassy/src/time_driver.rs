@@ -1,6 +1,6 @@
 use core::cell::RefCell;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
@@ -125,7 +125,7 @@ pub(crate) fn init() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn PLIC_timer1_IRQHandler() -> u8 {
     #[cfg(feature = "debug-logs")]
     mpfs_hal::print_unguarded!("Hart {} timer! at {}\n", pac::hart_id(), DRIVER.now());

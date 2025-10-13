@@ -84,7 +84,9 @@ fn init_emmc() -> Result<(), Error> {
 }
 
 unsafe fn mmc_reset_block() {
-    (*pac::SYSREG).SUBBLK_CLOCK_CR |= pac::SUBBLK_CLOCK_CR_MMC_MASK;
-    (*pac::SYSREG).SOFT_RESET_CR |= pac::SOFT_RESET_CR_MMC_MASK;
-    (*pac::SYSREG).SOFT_RESET_CR &= !pac::SOFT_RESET_CR_MMC_MASK;
+    unsafe {
+        (*pac::SYSREG).SUBBLK_CLOCK_CR |= pac::SUBBLK_CLOCK_CR_MMC_MASK;
+        (*pac::SYSREG).SOFT_RESET_CR |= pac::SOFT_RESET_CR_MMC_MASK;
+        (*pac::SYSREG).SOFT_RESET_CR &= !pac::SOFT_RESET_CR_MMC_MASK;
+    }
 }

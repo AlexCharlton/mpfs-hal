@@ -112,9 +112,11 @@ macro_rules! impl_eth {
             }
 
             unsafe fn steal() -> &'static mut Self {
-                $ETH = Some(EthernetDevice::new($MAC::steal()));
-                #[allow(static_mut_refs)]
-                $ETH.as_mut().unwrap()
+                unsafe {
+                    $ETH = Some(EthernetDevice::new($MAC::steal()));
+                    #[allow(static_mut_refs)]
+                    $ETH.as_mut().unwrap()
+                }
             }
         }
     };

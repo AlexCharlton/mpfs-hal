@@ -1,17 +1,17 @@
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 use embassy_futures::select::select;
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_time::{Duration, Timer, with_timeout};
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel,
-    UsbHostDriver,
+    ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
+    channel,
 };
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
-use mpfs_hal::{pac, Peripheral};
+use mpfs_hal::{Peripheral, pac};
 
 use super::common::*;
 
@@ -670,7 +670,7 @@ pub fn mss_interval(_speed: Speed, endpoint_type: EndpointType) -> u32 {
 //------------------------------------------------------
 // MSS USB CIF Callbacks
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[doc(hidden)]
 #[allow(non_upper_case_globals)]
 pub static g_mss_usbh_cb: pac::mss_usbh_cb_t = pac::mss_usbh_cb_t {

@@ -12,27 +12,30 @@ use core::convert::Infallible;
 use core::future::Future;
 use core::task::{Context, Poll, Waker};
 
-use crate::pac;
 use crate::Peripheral;
+use crate::pac;
 
 const MSS_GPIO_INTERRUPT_COUNT: usize = 38;
 unsafe fn base_init() {
-    pac::MSS_GPIO_init(pac::GPIO0_LO);
-    pac::MSS_GPIO_init(pac::GPIO1_LO);
-    pac::MSS_GPIO_init(pac::GPIO2_LO);
-    // Interrupts are configured for GPIO0 and GPIO1 by default
-    // GPIO2 interrupts are initialized when a Pin is taken
-    (*pac::SYSREG).GPIO_INTERRUPT_FAB_CR = 0x0;
+    unsafe {
+        pac::MSS_GPIO_init(pac::GPIO0_LO);
+        pac::MSS_GPIO_init(pac::GPIO1_LO);
+        pac::MSS_GPIO_init(pac::GPIO2_LO);
+        // Interrupts are configured for GPIO0 and GPIO1 by default
+        // GPIO2 interrupts are initialized when a Pin is taken
+        (*pac::SYSREG).GPIO_INTERRUPT_FAB_CR = 0x0;
 
-    for i in 0..MSS_GPIO_INTERRUPT_COUNT {
-        pac::PLIC_SetPriority(
-            pac::PLIC_IRQn_Type_PLIC_GPIO0_BIT0_or_GPIO2_BIT0_INT_OFFSET + i as u32,
-            2,
-        );
-    }
-    for i in pac::PLIC_IRQn_Type_PLIC_F2M_0_INT_OFFSET..=pac::PLIC_IRQn_Type_PLIC_F2M_63_INT_OFFSET
-    {
-        pac::PLIC_SetPriority(i, 2);
+        for i in 0..MSS_GPIO_INTERRUPT_COUNT {
+            pac::PLIC_SetPriority(
+                pac::PLIC_IRQn_Type_PLIC_GPIO0_BIT0_or_GPIO2_BIT0_INT_OFFSET + i as u32,
+                2,
+            );
+        }
+        for i in
+            pac::PLIC_IRQn_Type_PLIC_F2M_0_INT_OFFSET..=pac::PLIC_IRQn_Type_PLIC_F2M_63_INT_OFFSET
+        {
+            pac::PLIC_SetPriority(i, 2);
+        }
     }
 }
 
@@ -80,11 +83,13 @@ impl Interrupt {
     };
 
     unsafe fn triggered(&self) -> bool {
-        GPIO_INTERRUPTS[self.interrupt_idx as usize].triggered
+        unsafe { GPIO_INTERRUPTS[self.interrupt_idx as usize].triggered }
     }
 
     unsafe fn set_waker(&mut self, waker: Waker) {
-        GPIO_INTERRUPTS[self.interrupt_idx as usize].waker = Some(waker);
+        unsafe {
+            GPIO_INTERRUPTS[self.interrupt_idx as usize].waker = Some(waker);
+        }
     }
 
     fn is_none(&self) -> bool {
@@ -141,7 +146,7 @@ macro_rules! impl_gpio_interrupt {
             }
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         extern "C" fn $interrupt_handler() -> u8 {
             let interrupt = unsafe { &mut GPIO_INTERRUPTS[$interrupt_idx] };
             log::trace!("GPIO interrupt {} triggered: {:?}", $interrupt_idx, interrupt);
@@ -895,8 +900,10 @@ macro_rules! impl_input_peripheral {
             }
 
             unsafe fn steal() -> Self {
-                Self {
-                    pin: $crate::gpio::Input::new($pin::steal()),
+                unsafe {
+                    Self {
+                        pin: $crate::gpio::Input::new($pin::steal()),
+                    }
                 }
             }
         }
@@ -974,8 +981,10 @@ macro_rules! impl_output_peripheral {
             }
 
             unsafe fn steal() -> Self {
-                Self {
-                    pin: $crate::gpio::Output::new($pin::steal()),
+                unsafe {
+                    Self {
+                        pin: $crate::gpio::Output::new($pin::steal()),
+                    }
                 }
             }
         }
@@ -1156,13 +1165,15 @@ mod beaglev_fire {
         use crate::pac;
 
         pub(crate) unsafe fn cape_init() {
-            // FPGA Core GPIO initialization
-            let mut p8: pac::gpio_instance_t = P8_CORE_GPIO;
-            log::trace!("Initializing FPGA Core GPIO {:?}", p8);
-            pac::GPIO_init(&mut p8, P8_CORE_GPIO.base_addr, P8_CORE_GPIO.apb_bus_width);
-            let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
-            log::trace!("Initializing FPGA Core GPIO {:?}", p9);
-            pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
+            unsafe {
+                // FPGA Core GPIO initialization
+                let mut p8: pac::gpio_instance_t = P8_CORE_GPIO;
+                log::trace!("Initializing FPGA Core GPIO {:?}", p8);
+                pac::GPIO_init(&mut p8, P8_CORE_GPIO.base_addr, P8_CORE_GPIO.apb_bus_width);
+                let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
+                log::trace!("Initializing FPGA Core GPIO {:?}", p9);
+                pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
+            }
         }
 
         pub const P8_CORE_GPIO: pac::gpio_instance_t = pac::gpio_instance_t {
@@ -1554,20 +1565,22 @@ mod beaglev_fire {
             }
 
             unsafe fn steal() -> Self {
-                Self {
-                    led0: Led0::steal(),
-                    led1: Led1::steal(),
-                    led2: Led2::steal(),
-                    led3: Led3::steal(),
-                    led4: Led4::steal(),
-                    led5: Led5::steal(),
-                    led6: Led6::steal(),
-                    led7: Led7::steal(),
-                    led8: Led8::steal(),
-                    led9: Led9::steal(),
-                    #[cfg(feature = "beaglev-fire-gpio-cape")]
-                    led10: Led10::steal(),
-                    led11: Led11::steal(),
+                unsafe {
+                    Self {
+                        led0: Led0::steal(),
+                        led1: Led1::steal(),
+                        led2: Led2::steal(),
+                        led3: Led3::steal(),
+                        led4: Led4::steal(),
+                        led5: Led5::steal(),
+                        led6: Led6::steal(),
+                        led7: Led7::steal(),
+                        led8: Led8::steal(),
+                        led9: Led9::steal(),
+                        #[cfg(feature = "beaglev-fire-gpio-cape")]
+                        led10: Led10::steal(),
+                        led11: Led11::steal(),
+                    }
                 }
             }
         }
