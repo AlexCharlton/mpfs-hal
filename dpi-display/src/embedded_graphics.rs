@@ -2,6 +2,7 @@ use embedded_graphics::pixelcolor::{
     raw::RawU24, Bgr555, Bgr565, Bgr666, Bgr888, BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
 };
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::Rectangle;
 
 pub enum DrawError {
     BufferNotAvailable,
@@ -47,6 +48,38 @@ impl DrawTarget for super::Display {
             }
         }
 
+        Ok(())
+    }
+
+    fn fill_contiguous<I>(&mut self, area: &Rectangle, colors: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Self::Color>,
+    {
+        let buffer = self.maybe_get_buffer();
+        if buffer.is_none() {
+            return Err(DrawError::BufferNotAvailable);
+        }
+        let buffer = buffer.unwrap();
+
+        let self_area = Rectangle::new(
+            Point::zero(),
+            Size::new(super::WIDTH as u32, super::HEIGHT as u32),
+        );
+        let target_area = self_area.intersection(area);
+        if let Some(bottom_right) = target_area.bottom_right() {
+            let mut x = target_area.top_left.x;
+            let mut y = target_area.top_left.y;
+            for color in colors {
+                if x >= bottom_right.x {
+                    x = target_area.top_left.x;
+                    y += 1;
+                } else if y >= bottom_right.y {
+                    break;
+                }
+                buffer.set_pixel(x as usize, y as usize, color);
+                x += 1;
+            }
+        }
         Ok(())
     }
 
