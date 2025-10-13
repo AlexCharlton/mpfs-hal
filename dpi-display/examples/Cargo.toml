@@ -16,8 +16,10 @@ mpfs-hal-embassy = { path = "../../mpfs-hal-embassy" }
 dpi-display = { path = "../", features = ["embedded-graphics"] }
 
 embedded-graphics = { version = "0.8" }
-embassy-time = { path = "../../../external/embassy/embassy-time" }
-embassy-executor = { path = "../../../external/embassy/embassy-executor" }
+# embassy-time = { path = "../../../external/embassy/embassy-time" }
+embassy-time = { git = "https://github.com/AlexCharlton/embassy", branch = "usb3" }
+# embassy-executor = { path = "../../../external/embassy/embassy-executor" }
+embassy-executor = { git = "https://github.com/AlexCharlton/embassy", branch = "usb3" }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
 log = { version = "0.4" }

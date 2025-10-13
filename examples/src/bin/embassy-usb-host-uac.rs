@@ -40,7 +40,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
             .await;
         log::info!("[UAC] Terminal Name: {:?}", terminal_name);
 
-        let mut out = uac.output().unwrap();
+        let mut out = uac.output().await.unwrap();
         out.output_stream(|| usbhost.is_connected(), generate_sine_wave)
             .await
             .unwrap();

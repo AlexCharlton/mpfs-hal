@@ -18,7 +18,7 @@ embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 libm = "0.2"
 log = { workspace = true }
-midi-msg = { version = "0.8.0", default-features = false }
+midi-msg = { version = "0.8", default-features = false }
 static_cell = { workspace = true }
 usbd-hid = "0.8"
 

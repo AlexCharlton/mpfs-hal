@@ -14,10 +14,10 @@ mpfs-hal = { path = "../mpfs-hal", default-features = false, features = [
 
 critical-section = { version = "1.2", features = ["restore-state-u8"] }
 embedded-graphics = { version = "0.8", optional = true }
-embedded-temu = { path = "../../external/embedded-term", optional = true }
+embedded-temu = { git = "https://github.com/AlexCharlton/embedded-temu", branch = "main", optional = true }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
-embassy-time = { path = "../../external/embassy/embassy-time" }
+embassy-time = { git = "https://github.com/AlexCharlton/embassy", branch = "usb3" }
 log = { version = "0.4" }
 paste = "1.0"
 
