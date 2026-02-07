@@ -1,7 +1,7 @@
-use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicUsize, Ordering, fence};
 use critical_section::RawRestoreState;
 
-use super::pac::{MIP_MSIP, hart_id};
+use super::pac::{MSTATUS_MIE, hart_id};
 
 pub struct MPFSCriticalSection;
 
@@ -37,16 +37,15 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
             );
             // When entering from an interrupt handler, interrupts are already disabled
             // So we only want to restore them if they were enabled when we entered
-            let was_enabled = (status & MIP_MSIP) != 0;
+            let was_enabled = (status & MSTATUS_MIE as usize) != 0;
 
             loop {
                 // Disable interrupts
                 core::arch::asm!(
                     "csrci mstatus, {}",
-                    const MIP_MSIP,
+                    const MSTATUS_MIE,
                     options(nomem, nostack)
                 );
-                compiler_fence(Ordering::SeqCst);
 
                 match LOCK_OWNER.compare_exchange(
                     LOCK_UNOWNED,
@@ -60,10 +59,11 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
                         if was_enabled {
                             core::arch::asm!(
                                 "csrsi mstatus, {}",
-                                const MIP_MSIP,
+                                const MSTATUS_MIE,
                                 options(nomem, nostack)
                             );
                         }
+                        core::hint::spin_loop();
                     }
                 }
             }
@@ -100,13 +100,18 @@ unsafe impl critical_section::Impl for MPFSCriticalSection {
                 crate::println_unguarded!("hart {} releasing\n", hart_id());
             }
 
+            // Ensure all memory operations in the critical section are complete
+            // before releasing the lock
+            fence(Ordering::SeqCst);
+
             // Release the lock
             LOCK_OWNER.store(LOCK_UNOWNED, Ordering::Release);
 
             if state == RestoreState::ReleaseLockRestoreInterrupts as u8 {
-                compiler_fence(Ordering::SeqCst);
+                // Ensure lock release is visible before re-enabling interrupts
+                fence(Ordering::SeqCst);
                 // Re-enable interrupts
-                core::arch::asm!("csrsi mstatus, {}", const MIP_MSIP, options(nomem, nostack));
+                core::arch::asm!("csrsi mstatus, {}", const MSTATUS_MIE, options(nomem, nostack));
             }
         }
     }
