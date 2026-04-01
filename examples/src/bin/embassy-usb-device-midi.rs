@@ -3,7 +3,7 @@
 
 // https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/usb_midi.rs used as reference
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use embassy_futures::join::join;
 use embassy_usb::class::midi::MidiClass;
 use embassy_usb::driver::EndpointError;

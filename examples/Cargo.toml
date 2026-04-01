@@ -14,13 +14,14 @@ embassy-time = { workspace = true }
 embassy-executor = { workspace = true }
 embassy-usb = { workspace = true, features = ["log"] }
 embassy-usb-driver = { workspace = true }
+embassy-usb-host = { workspace = true }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
 libm = "0.2"
 log = { workspace = true }
 midi-msg = { version = "0.8", default-features = false }
 static_cell = { workspace = true }
-usbd-hid = "0.8"
+usbd-hid = "0.10"
 
 # TCP example
 embassy-net = { workspace = true, features = [

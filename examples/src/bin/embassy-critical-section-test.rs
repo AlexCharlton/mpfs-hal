@@ -25,7 +25,7 @@ async fn hart1_main(spawner: embassy_executor::Spawner) {
         counter.lock(|c| *c.borrow())
     );
 
-    spawner.spawn(counter_task(counter)).unwrap();
+    spawner.spawn(counter_task(counter).unwrap());
 }
 
 #[mpfs_hal_embassy::embassy_hart2_main]
@@ -37,7 +37,7 @@ async fn hart2_main(spawner: embassy_executor::Spawner) {
         counter.lock(|c| *c.borrow())
     );
 
-    spawner.spawn(counter_task(counter)).unwrap();
+    spawner.spawn(counter_task(counter).unwrap());
 }
 
 #[mpfs_hal_embassy::embassy_hart3_main]
@@ -48,7 +48,7 @@ async fn hart3_main(spawner: embassy_executor::Spawner) {
         "Counter init from hart 3: {}",
         counter.lock(|c| *c.borrow())
     );
-    spawner.spawn(counter_task(counter)).unwrap();
+    spawner.spawn(counter_task(counter).unwrap());
 }
 
 #[mpfs_hal_embassy::embassy_hart4_main]
@@ -59,7 +59,7 @@ async fn hart4_main(spawner: embassy_executor::Spawner) {
         "Counter init from hart 4: {}",
         counter.lock(|c| *c.borrow())
     );
-    spawner.spawn(counter_task(counter)).unwrap();
+    spawner.spawn(counter_task(counter).unwrap());
 }
 
 #[embassy_executor::task(pool_size = 4)]

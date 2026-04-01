@@ -5,8 +5,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::join::join3;
 use embassy_time::Timer;
 
-use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 use mpfs_hal::PeripheralRef;
+use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 
 const TX_PAK_ARP: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFC, 0x00, 0x12, 0x34, 0x56, 0x08, 0x06, 0x00, 0x01,
@@ -24,7 +24,7 @@ async fn hart1_main(spawner: embassy_executor::Spawner) {
     log::info!("Initializing ethernet");
     let device = EthernetDevice::<MAC0>::take().unwrap();
     device.init([0x02, 0x01, 0x02, 0x03, 0x04, 0x05]);
-    spawner.spawn(run(device)).unwrap();
+    spawner.spawn(run(device).unwrap());
 }
 
 #[embassy_executor::task]

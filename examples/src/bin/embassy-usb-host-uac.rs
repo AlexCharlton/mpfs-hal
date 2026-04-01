@@ -1,51 +1,64 @@
 #![no_std]
 #![no_main]
 
-use embassy_usb::handlers::uac::UacHandler;
-use embassy_usb::host::UsbHostBusExt;
-use embassy_usb_driver::host::{DeviceEvent::Connected, UsbHostDriver};
+use embassy_usb_host::UsbHost;
+use embassy_usb_host::class::uac::UacHandler;
+use embassy_usb_host::handler::EnumerationInfo;
 use mpfs_hal::Peripheral;
-use mpfs_hal_embassy::usb::host::UsbHost;
+use mpfs_hal_embassy::usb::host;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
 
-    let mut usbhost = UsbHost::take().unwrap();
-    usbhost.start();
+    let driver = host::UsbHostDriver::take().unwrap();
+    driver.start();
+    let mut usbhost = UsbHost::new(driver);
 
-    log::info!("Detecting device");
-    let speed = loop {
-        match usbhost.wait_for_device_event().await {
-            Connected(speed) => break speed,
-            _ => {}
+    loop {
+        log::debug!("Detecting device");
+        // Wait for root-port to detect device
+        let speed = usbhost.wait_for_connection().await;
+
+        log::info!("Found device with speed = {:?}", speed);
+
+        let mut config_buf = [0u8; 512];
+        let (dev_desc, addr, _config_len) = match usbhost.enumerate(speed, &mut config_buf).await {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Enumeration failed: {:?}", e);
+                continue;
+            }
+        };
+        let enum_info = EnumerationInfo {
+            device_address: addr,
+            ls_over_fs: false,
+            speed: speed,
+            device_desc: dev_desc,
+        };
+
+        if let Ok(mut uac) = UacHandler::try_register(usbhost.driver(), enum_info).await {
+            log::info!("UAC registered");
+            let sampling_freq = uac
+                .get_sampling_freq(uac.input_terminal().clock_source_id())
+                .await;
+            log::info!("[UAC] Current Sampling Frequency: {:?}", sampling_freq);
+
+            let lang_id = uac.get_supported_language().await;
+            log::info!("[UAC] Supported Language: {:?}", lang_id);
+
+            let terminal_name = uac
+                .get_string(uac.input_terminal().terminal_name(), lang_id.unwrap())
+                .await;
+            log::info!("[UAC] Terminal Name: {:?}", terminal_name);
+
+            let mut out = uac.output().await.unwrap();
+            out.output_stream(|| usbhost.driver().is_connected(), generate_sine_wave)
+                .await
+                .unwrap();
+        } else {
+            log::error!("Failed to register UAC");
         }
-    };
-
-    log::info!("Found device with speed = {:?}", speed);
-    let enum_info = usbhost.enumerate_root_bare(speed, 1).await.unwrap();
-
-    if let Ok(mut uac) = UacHandler::try_register(&usbhost, enum_info).await {
-        log::info!("UAC registered");
-        let sampling_freq = uac
-            .get_sampling_freq(uac.input_terminal().clock_source_id())
-            .await;
-        log::info!("[UAC] Current Sampling Frequency: {:?}", sampling_freq);
-
-        let lang_id = uac.get_supported_language().await;
-        log::info!("[UAC] Supported Language: {:?}", lang_id);
-
-        let terminal_name = uac
-            .get_string(uac.input_terminal().terminal_name(), lang_id.unwrap())
-            .await;
-        log::info!("[UAC] Terminal Name: {:?}", terminal_name);
-
-        let mut out = uac.output().await.unwrap();
-        out.output_stream(|| usbhost.is_connected(), generate_sine_wave)
-            .await
-            .unwrap();
-    } else {
-        log::error!("Failed to register UAC");
     }
 }
 

@@ -138,7 +138,7 @@ pub fn embassy_hart1_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 
@@ -170,7 +170,7 @@ pub fn embassy_hart2_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 
@@ -202,7 +202,7 @@ pub fn embassy_hart3_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 
@@ -234,7 +234,7 @@ pub fn embassy_hart4_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 

@@ -1,10 +1,10 @@
 use embassy_usb_driver::{
+    Direction, EndpointAddress, EndpointType, Speed,
     host::{ChannelError, HostError},
-    Direction, EndpointType, Speed,
 };
 use mpfs_hal::pac;
 
-// This should not be raised unless related constants in Endpoint Common are ammended
+// This should not be raised unless related constants in Endpoint Common are amended
 pub const NUM_ENDPOINTS: usize = 16;
 pub const MAX_FIFO_SIZE: u16 = 4096;
 pub const OUT_ENDPOINTS_START_ADDR: u16 = 0x0000;
@@ -33,8 +33,8 @@ impl Default for EndpointState {
 mod ep {
     extern crate alloc;
 
-    use super::{default_ep, EndpointState, MAX_FIFO_SIZE};
-    use aligned::{Aligned, A4};
+    use super::{EndpointState, MAX_FIFO_SIZE, default_ep};
+    use aligned::{A4, Aligned};
     use alloc::boxed::Box;
     use core::task::Waker;
     use mpfs_hal::pac;
@@ -67,7 +67,7 @@ mod ep {
 
 #[cfg(not(feature = "alloc"))]
 mod ep {
-    use super::{default_ep, EndpointState};
+    use super::{EndpointState, default_ep};
     use core::task::Waker;
     use mpfs_hal::pac;
 
@@ -96,10 +96,10 @@ pub use ep::*;
 
 // Endpoints need to have a FIFO assigned to an address in the MSS USB internal RAM.
 // The RAM is 65k (0xFFFF) bytes, so using 32 endpoints (16 in + 16 out)
-// allows us to give 2048 bytes to each endpoint if we devide it equally. We will allow
+// allows us to give 2048 bytes to each endpoint if we divide it equally. We will allow
 // the user to configure the endpoint with a max packet size of up to 4096 bytes, however
 // which means that not all endpoints will be able to have the maximum packet size.
-// Further, we will devide the FIFO into 2 parts, with 0x0000 being the start address for
+// Further, we will divide the FIFO into 2 parts, with 0x0000 being the start address for
 // the out endpoints and 0x8000 being the start address for the in endpoints.
 //
 // Additionally, we have 4 DMA channels available, and they can each only be mapped to
@@ -121,7 +121,13 @@ pub struct EndpointDetails {
 pub fn alloc_fifo_addr(
     max_packet_size: u16,
     endpoints: &mut [EndpointDetails],
+    endpoint_addr: Option<EndpointAddress>,
 ) -> Result<usize, HostError> {
+    assert!(
+        endpoint_addr.is_none(),
+        "Explicit endpoint address not implemented"
+    );
+
     if max_packet_size > MAX_FIFO_SIZE {
         return Err(HostError::OutOfChannels);
     }
@@ -185,7 +191,10 @@ pub fn configure_endpoint_controller(
     };
 
     if max_packet_size > std_max_pkt_sz as u16 {
-        panic!("Max packet size is greater than the allowed max packet size for this transfer type {} expected for {:?}, got {}", std_max_pkt_sz, endpoint_type, max_packet_size);
+        panic!(
+            "Max packet size is greater than the allowed max packet size for this transfer type {} expected for {:?}, got {}",
+            std_max_pkt_sz, endpoint_type, max_packet_size
+        );
     }
 
     let fifo_addr = endpoint_details.fifo_addr

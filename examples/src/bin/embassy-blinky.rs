@@ -6,8 +6,8 @@ extern crate alloc;
 use embassy_time::Timer;
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal_async::digital::Wait;
-use mpfs_hal::gpio::*;
 use mpfs_hal::Peripheral;
+use mpfs_hal::gpio::*;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {

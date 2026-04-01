@@ -7,11 +7,11 @@
 
 use embassy_futures::yield_now;
 use embassy_net::{Stack, StackResources};
-use rand::{rngs::SmallRng, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng, rngs::SmallRng};
 use static_cell::StaticCell;
 
-use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 use mpfs_hal::PeripheralRef;
+use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(spawner: embassy_executor::Spawner) {
@@ -30,7 +30,7 @@ async fn hart1_main(spawner: embassy_executor::Spawner) {
         seed,
     );
 
-    spawner.spawn(net_task(runner)).unwrap();
+    spawner.spawn(net_task(runner).unwrap());
 
     log::info!("Waiting for DHCP...");
     // Why does this take so long?

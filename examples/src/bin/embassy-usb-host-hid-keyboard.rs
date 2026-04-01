@@ -1,42 +1,58 @@
 #![no_std]
 #![no_main]
 
-// https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/usb_midi.rs used as reference
+// https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/usb_host_keyboard.rs used as reference
 
-use embassy_usb::handlers::{kbd::KbdHandler, UsbHostHandler};
-use embassy_usb::host::UsbHostBusExt;
-use embassy_usb_driver::host::{DeviceEvent::Connected, UsbHostDriver};
+use embassy_usb_host::UsbHost;
+use embassy_usb_host::class::kbd::KbdHandler;
+use embassy_usb_host::handler::{EnumerationInfo, UsbHostHandler};
 use mpfs_hal::Peripheral;
-use mpfs_hal_embassy::usb::host::UsbHost;
+use mpfs_hal_embassy::usb::host;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
 
-    let mut usbhost = UsbHost::take().unwrap();
-
-    usbhost.start();
-
-    log::debug!("Detecting device");
-    // Wait for root-port to detect device
-    let speed = loop {
-        match usbhost.wait_for_device_event().await {
-            Connected(speed) => break speed,
-            _ => {}
-        }
-    };
-
-    log::info!("Found device with speed = {:?}", speed);
-
-    let enum_info = usbhost.enumerate_root_bare(speed, 1).await.unwrap();
-    log::info!("Enumerated device: {:?}", &enum_info);
-    let mut kbd = KbdHandler::try_register(&usbhost, &enum_info)
-        .await
-        .expect("Couldn't register keyboard");
+    let driver = host::UsbHostDriver::take().unwrap();
+    driver.start();
+    let mut usbhost = UsbHost::new(driver);
 
     loop {
-        let result = kbd.wait_for_event().await;
-        log::info!("Got interrupt: {:?}", result);
+        log::debug!("Detecting device");
+        // Wait for root-port to detect device
+        let speed = usbhost.wait_for_connection().await;
+
+        let mut config_buf = [0u8; 256];
+        let result = usbhost.enumerate(speed, &mut config_buf).await;
+
+        let (dev_desc, addr, _config_len) = match result {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Enumeration failed: {:?}", e);
+                continue;
+            }
+        };
+        let enum_info = EnumerationInfo {
+            device_address: addr,
+            ls_over_fs: false,
+            speed: speed,
+            device_desc: dev_desc,
+        };
+
+        log::info!(
+            "Enumerated: VID={:04x} PID={:04x} addr={}",
+            dev_desc.vendor_id,
+            dev_desc.product_id,
+            addr
+        );
+        let mut kbd = KbdHandler::try_register(usbhost.driver(), &enum_info)
+            .await
+            .expect("Couldn't register keyboard");
+
+        loop {
+            let result = kbd.wait_for_event().await;
+            log::info!("Got interrupt: {:?}", result);
+        }
     }
 }
 

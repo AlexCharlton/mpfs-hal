@@ -3,12 +3,14 @@
 
 // https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usb_hid_mouse.rs used as reference
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use embassy_futures::join::join;
 use embassy_time::Timer;
-use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
-use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidSubclass, HidWriter, ReportId, RequestHandler, State,
+};
+use embassy_usb::control::OutResponse;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 
 use mpfs_hal::Peripheral;
@@ -48,6 +50,8 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::No,
+        hid_boot_protocol: HidBootProtocol::None,
     };
 
     let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);

@@ -6,8 +6,7 @@ use core::task::{Poll, Waker};
 use embassy_futures::select::select;
 use embassy_time::{Duration, Timer, with_timeout};
 use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
-    channel,
+    ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, channel,
 };
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
@@ -29,7 +28,7 @@ static mut DEVICE_EVENT: Option<DeviceEvent> = None;
 static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
 
 #[derive(Default)]
-pub struct UsbHost {
+pub struct UsbHostDriver {
     connected: Rc<RefCell<bool>>,
     in_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
     out_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
@@ -38,7 +37,7 @@ pub struct UsbHost {
 
 static mut HOST_TAKEN: bool = false;
 
-impl Peripheral for UsbHost {
+impl Peripheral for UsbHostDriver {
     fn take() -> Option<Self> {
         critical_section::with(|_| unsafe {
             if HOST_TAKEN {
@@ -55,7 +54,7 @@ impl Peripheral for UsbHost {
     }
 }
 
-impl UsbHost {
+impl UsbHostDriver {
     /// Must be called before `start`
     // TODO: Does this work?
     pub fn disable_high_speed(&mut self) {
@@ -95,7 +94,7 @@ impl UsbHost {
     }
 }
 
-impl UsbHostDriver for UsbHost {
+impl embassy_usb_driver::host::UsbHostDriver for UsbHostDriver {
     type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D>;
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
@@ -233,6 +232,7 @@ impl UsbHostDriver for UsbHost {
                 let i = alloc_fifo_addr(
                     endpoint.max_packet_size,
                     &mut *self.in_channels_allocated.borrow_mut(),
+                    None,
                 )?;
 
                 Some(configure_endpoint_controller(
@@ -256,6 +256,7 @@ impl UsbHostDriver for UsbHost {
                 let i = alloc_fifo_addr(
                     endpoint.max_packet_size,
                     &mut *self.out_channels_allocated.borrow_mut(),
+                    None,
                 )?;
 
                 Some(configure_endpoint_controller(
@@ -509,7 +510,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
     }
 
     /// Configure the timeouts of this channel
-    async fn set_timeout(&mut self, _timeout: TimeoutConfig) {
+    fn set_timeout(&mut self, _timeout: TimeoutConfig) {
         log::warn!("set_timeout: not implemented");
     }
 
@@ -587,7 +588,11 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         Ok(read)
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
+    async fn request_out(
+        &mut self,
+        buf: &[u8],
+        _ensure_transaction_end: bool,
+    ) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {

@@ -120,6 +120,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
     fn alloc_endpoint_out(
         &mut self,
         endpoint_type: EndpointType,
+        endpoint_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
@@ -128,7 +129,11 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             endpoint_type,
             max_packet_size
         );
-        match alloc_fifo_addr(max_packet_size, &mut self.out_endpoints_allocated) {
+        match alloc_fifo_addr(
+            max_packet_size,
+            &mut self.out_endpoints_allocated,
+            endpoint_addr,
+        ) {
             Ok(i) => {
                 let ep = configure_endpoint_controller(
                     Direction::Out,
@@ -161,6 +166,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
     fn alloc_endpoint_in(
         &mut self,
         endpoint_type: EndpointType,
+        endpoint_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -169,7 +175,11 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             endpoint_type,
             max_packet_size
         );
-        match alloc_fifo_addr(max_packet_size, &mut self.in_endpoints_allocated) {
+        match alloc_fifo_addr(
+            max_packet_size,
+            &mut self.in_endpoints_allocated,
+            endpoint_addr,
+        ) {
             Ok(i) => {
                 let ep = configure_endpoint_controller(
                     Direction::In,
