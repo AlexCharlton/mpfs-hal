@@ -3,17 +3,14 @@
 
 // https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/usb_midi.rs used as reference
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use embassy_futures::join::join;
 use embassy_usb::class::midi::MidiClass;
 use embassy_usb::driver::EndpointError;
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
 
-use mpfs_hal::usb::device::UsbDriver;
 use mpfs_hal::Peripheral;
-
-#[macro_use]
-extern crate mpfs_hal;
+use mpfs_hal_embassy::usb::device::UsbDriver;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
@@ -63,7 +60,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
     };
 
-    println!("We're going to display incoming MIDI notes on the LEDs 🎶");
+    log::info!("We're going to display incoming MIDI notes on the LEDs 🎶");
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
@@ -125,6 +122,11 @@ async fn midi_display<'d, 'a>(
     }
 }
 
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
+}
+
 #[mpfs_hal::init_once]
 fn config() {
     // We can expect to miss messages if we log at Info level
@@ -135,5 +137,5 @@ fn config() {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }

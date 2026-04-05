@@ -112,9 +112,11 @@ macro_rules! impl_eth {
             }
 
             unsafe fn steal() -> &'static mut Self {
-                $ETH = Some(EthernetDevice::new($MAC::steal()));
-                #[allow(static_mut_refs)]
-                $ETH.as_mut().unwrap()
+                unsafe {
+                    $ETH = Some(EthernetDevice::new($MAC::steal()));
+                    #[allow(static_mut_refs)]
+                    $ETH.as_mut().unwrap()
+                }
             }
         }
     };
@@ -309,6 +311,7 @@ impl<M: MacPeripheral> EthernetDevice<M> {
                 (*mac_base).UPPER_TX_Q_BASE_ADDR =
                     (self.mac.tx_buffer().0.as_ptr() as u64 >> 32) as u32;
                 (*mac_base).NETWORK_CONTROL |= pac::GEM_ENABLE_TRANSMIT;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             }
 
             pac::MSS_MAC_tx_enable(self.mac.address());

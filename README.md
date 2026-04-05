@@ -2,9 +2,6 @@
 
 This repository contains a hardware abstraction layer for the Microchip PolarFire SoC, built on the Mirochip-provided [platform](https://github.com/polarfire-soc/platform), as well as [Embassy](https://github.com/embassy-rs/embassy) support and a TTY application which can flash images to a board that is using the [HSS](https://github.com/polarfire-soc/hss) bootloader.
 
-> [!NOTE]
-> This repository is a work in progress, and the [usbh](https://github.com/AlexCharlton/mpfs-hal/tree/usbh) branch represents the most up-to-date progress as well as several important fixes. It depends on a [fork of embassy](https://github.com/AlexCharlton/embassy) that has USB host support (see [PR](https://github.com/embassy-rs/embassy/pull/4321)), however.
-
 > [!TIP]
 > Using a more recent version of the HSS bootloader is highly recommended. DDR training on earlier versions hangs frequently. See the [**Gateware programming**](#gateware-programming) section for details about upgrading.
 
@@ -15,11 +12,11 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 - [alloc](https://doc.rust-lang.org/alloc/) support via [embedded-alloc](https://github.com/rust-embedded/embedded-alloc) (`alloc` feature)
 - Board-specific GPIO ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/digital/index.html) `OutputPin` and `InputPin`) with support for interrupts ([embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/digital/trait.Wait.html) `Wait`)
 - UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) `Write` and [embedded-io-async](https://docs.rs/embedded-io-async/latest/embedded_io_async/trait.Read.html) `Read`)
-- UART-based logger (`log` and `log-colors` features) and print macros (`print` feature)
+- UART-based logger (`log` and `log-colors` features - log timestamps are in microseconds) and print macros (`print` feature)
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html) `SpiBus`)
 - Ethernet ([embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver`)
 - USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver`)
-- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/pull/4321)) in the works
+- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/tree/main/embassy-usb-host))
 
 > [!NOTE]
 > While the `mpfs-hal` crate implements some Embassy traits, it comes with no requirement to use Embassy. These traits were used in the absence of other async traits available in the ecosystem, and they come with the benefit of having USB/Ethernet stacks already implemented with [embassy-usb](https://docs.embassy.dev/embassy-usb/git/default/index.html) and [embassy-net](https://docs.embassy.dev/embassy-net/git/default/index.html) (both of which also do not need to be used with the Embassy executor, if so desired).
@@ -28,6 +25,8 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 `mpfs-hal-embassy` | [![Crates.io](https://img.shields.io/crates/v/mpfs-hal-embassy)](https://crates.io/crates/mpfs-hal-embassy) [![Docs.rs](https://docs.rs/mpfs-hal-embassy/badge.svg)](https://docs.rs/mpfs-hal-embassy)<br />
 - Embassy integration, with an Executor and Time Driver, supporting multicore with timer interrupts for low-power application.
 - Board-specific SD peripheral support via [embassy-embedded-hal](https://docs.embassy.dev/embassy-embedded-hal/git/default/shared_bus/asynch/spi/struct.SpiDevice.html) `SpiDevice` (which implements the [embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiDevice.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiDevice.html) traits of the same name)
+- USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver`)
+- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/pull/3307)) in the works
 
 
 `mpfs-pac` | [![Crates.io](https://img.shields.io/crates/v/mpfs-pac)](https://crates.io/crates/mpfs-pac) [![Docs.rs](https://docs.rs/mpfs-pac/badge.svg)](https://docs.rs/mpfs-pac)<br />
@@ -89,8 +88,8 @@ $ cargo check --target riscv64gc-unknown-none-elf
 ```
 
 ## Gateware programming
-See [beaglev-fire-zephyr-and-baremetal-with-gateware](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware) for an example project that contains the BeagleV-Fire gateware along with an updated bootloader (HSS). [icicle-kit-minimal-bring-up-design-bitstream-builder](https://github.com/polarfire-soc/icicle-kit-minimal-bring-up-design-bitstream-builder) similarly illustrates this for the Icicle Kit (though the HSS it uses is older).
+See [bvf-gateware-hss-base](https://github.com/AlexCharlton/bvf-gateware-hss-base) for project that can build the BeagleV-Fire gateware along with an updated bootloader (HSS). [icicle-kit-minimal-bring-up-design-bitstream-builder](https://github.com/polarfire-soc/icicle-kit-minimal-bring-up-design-bitstream-builder) similarly illustrates this for the Icicle Kit (though the HSS it uses is older).
 
-You can find a [pre-compiled bitstream](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware/releases/tag/default-bitstream-1.0) in the former repo which can either be programmed by using a [FlashPro Express 5 or 6](https://www.microchip.com/en-us/products/fpgas-and-plds/fpga-and-soc-design-tools/programming-and-debug/flashpro-express) or by taking advantage of the MPFS's auto-update feature via the SPI flash memory, like the BeagleV-Fire [`change-gateware.sh` script](https://docs.beagle.cc/boards/beaglev/fire/demos-and-tutorials/gateware/customize-cape-gateware-verilog.html#program-beaglev-fire-with-your-custom-bitstream) does.
+Here is a [pre-compiled bitstream](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware/releases/tag/default-bitstream-1.0) which can either be programmed by using a [FlashPro Express 5 or 6](https://www.microchip.com/en-us/products/fpgas-and-plds/fpga-and-soc-design-tools/programming-and-debug/flashpro-express) or by taking advantage of the MPFS's auto-update feature via the SPI flash memory, like the BeagleV-Fire [`change-gateware.sh` script](https://docs.beagle.cc/boards/beaglev/fire/demos-and-tutorials/gateware/customize-cape-gateware-verilog.html#program-beaglev-fire-with-your-custom-bitstream) does.
 
 If using a FlashPro Express, make sure that the SPI flash does not point to an auto-updateable bitstream. To this end, you can use [this image](https://github.com/AlexCharlton/beaglev-fire-zephyr-and-baremetal-with-gateware/releases/tag/spi-erase-1.0) to erase the the first block of the SPI flash memory. Just program it to the board using hss-tty-flasher and let it boot. This only needs to be done once.

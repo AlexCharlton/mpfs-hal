@@ -1,7 +1,7 @@
 [package]
 name = "mpfs-pac"
 version = "0.3.0"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "Peripheral Access Crate for PolarFire SoC"
 repository = "https://github.com/AlexCharlton/mpfs-hal"
@@ -27,6 +27,6 @@ upper-memory-layout = []
 riscv = "0.12"
 
 [build-dependencies]
-bindgen = "0.70"
+bindgen = "0.72"
 cc = "1.0"
 walkdir = "2.4"

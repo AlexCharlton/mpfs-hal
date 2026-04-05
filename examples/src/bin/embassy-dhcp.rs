@@ -7,17 +7,15 @@
 
 use embassy_futures::yield_now;
 use embassy_net::{Stack, StackResources};
-use rand::{rngs::SmallRng, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng, rngs::SmallRng};
 use static_cell::StaticCell;
 
-#[macro_use]
-extern crate mpfs_hal;
-use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 use mpfs_hal::PeripheralRef;
+use mpfs_hal::ethernet::{EthernetDevice, MAC0};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(spawner: embassy_executor::Spawner) {
-    println!("Initializing ethernet");
+    log::info!("Initializing ethernet");
     let device = EthernetDevice::<MAC0>::take().unwrap();
     device.init([0x02, 0x01, 0x02, 0x03, 0x04, 0x05]);
 
@@ -32,7 +30,7 @@ async fn hart1_main(spawner: embassy_executor::Spawner) {
         seed,
     );
 
-    spawner.spawn(net_task(runner)).unwrap();
+    spawner.spawn(net_task(runner).unwrap());
 
     log::info!("Waiting for DHCP...");
     // Why does this take so long?
@@ -57,6 +55,11 @@ async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     }
 }
 
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
+}
+
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Debug);
@@ -65,5 +68,5 @@ fn config() {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }

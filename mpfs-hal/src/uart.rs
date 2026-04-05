@@ -176,6 +176,7 @@ pub enum BaudRate {
     Baud230400,
     Baud460800,
     Baud921600,
+    Custom(u32),
 }
 
 impl BaudRate {
@@ -195,6 +196,7 @@ impl BaudRate {
             BaudRate::Baud230400 => pac::MSS_UART_230400_BAUD,
             BaudRate::Baud460800 => pac::MSS_UART_460800_BAUD,
             BaudRate::Baud921600 => pac::MSS_UART_921600_BAUD,
+            BaudRate::Custom(value) => *value,
         }
     }
 }
@@ -272,23 +274,25 @@ pub(crate) fn init_uart() {
 }
 
 unsafe fn init_uart_interrupt(num: usize) {
-    // It just so happens that the UARTs are the first peripherals on the MPFS
-    pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_MMUART0_INT_OFFSET + num as u32, 2);
+    unsafe {
+        // It just so happens that the UARTs are the first peripherals on the MPFS
+        pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_MMUART0_INT_OFFSET + num as u32, 2);
 
-    let uart = match num {
-        0 => &raw mut pac::g_mss_uart0_lo,
-        1 => &raw mut pac::g_mss_uart1_lo,
-        2 => &raw mut pac::g_mss_uart2_lo,
-        3 => &raw mut pac::g_mss_uart3_lo,
-        4 => &raw mut pac::g_mss_uart4_lo,
-        _ => panic!("Invalid UART number"),
-    };
-    pac::MSS_UART_set_rx_handler(
-        uart,
-        Some(uart_rx_handler),
-        pac::mss_uart_rx_trig_level_t_MSS_UART_FIFO_SINGLE_BYTE,
-    );
-    pac::MSS_UART_enable_irq(uart, (pac::MSS_UART_RBF_IRQ | pac::MSS_UART_TBE_IRQ) as u16);
+        let uart = match num {
+            0 => &raw mut pac::g_mss_uart0_lo,
+            1 => &raw mut pac::g_mss_uart1_lo,
+            2 => &raw mut pac::g_mss_uart2_lo,
+            3 => &raw mut pac::g_mss_uart3_lo,
+            4 => &raw mut pac::g_mss_uart4_lo,
+            _ => panic!("Invalid UART number"),
+        };
+        pac::MSS_UART_set_rx_handler(
+            uart,
+            Some(uart_rx_handler),
+            pac::mss_uart_rx_trig_level_t_MSS_UART_FIFO_SINGLE_BYTE,
+        );
+        pac::MSS_UART_enable_irq(uart, (pac::MSS_UART_RBF_IRQ | pac::MSS_UART_TBE_IRQ) as u16);
+    }
 }
 
 //-------------------------------------------------------------------

@@ -111,10 +111,15 @@ async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>
     Ok(buf)
 }
 
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
+}
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }
 
 #[mpfs_hal::init_once]

@@ -5,6 +5,8 @@ mod alloc;
 #[cfg(feature = "alloc")]
 use alloc::init_heap;
 
+use riscv::register::mstatus;
+
 mod critical_section_impl;
 critical_section::set_impl!(critical_section_impl::MPFSCriticalSection);
 
@@ -27,19 +29,27 @@ pub use print::*;
 #[cfg(feature = "log")]
 mod logger;
 #[cfg(feature = "log")]
-pub use logger::init_logger;
+pub use logger::*;
 
 pub mod ethernet;
 pub mod gpio;
 pub mod qspi;
 pub mod spi;
 pub mod uart;
-pub mod usb;
+
+/// Put in a panic handler to put the core into a low power loop
+pub fn low_power_loop_forever() -> ! {
+    loop {
+        unsafe {
+            core::arch::asm!("wfi");
+        }
+    }
+}
 
 //----------------------------------------------------------
 // Entry points
 
-extern "C" {
+unsafe extern "C" {
     fn __init_once();
     fn __init_once_embassy();
     fn __hart1_entry();
@@ -55,6 +65,7 @@ fn init_once() {
             pac::MPFS_HAL_FIRST_HART as u8,
             pac::PERIPH_RESET_STATE__PERIPHERAL_ON,
         );
+        pac::mss_enable_fabric();
 
         #[cfg(feature = "alloc")]
         init_heap();
@@ -69,15 +80,16 @@ fn init_once() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_1() {
     unsafe {
         // Rest of hardware initialization
         pac::clear_soft_interrupt();
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
-
         pac::PLIC_init();
         pac::__enable_irq();
+        init_fpu();
+
         // All other harts are put into wfi when they boot, so we can init_once from here
         init_once();
 
@@ -90,7 +102,7 @@ extern "C" fn u54_1() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_2() {
     unsafe {
         // Rest of hardware initialization
@@ -98,6 +110,7 @@ extern "C" fn u54_2() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
+        init_fpu();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -105,7 +118,7 @@ extern "C" fn u54_2() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_3() {
     unsafe {
         // Rest of hardware initialization
@@ -113,6 +126,7 @@ extern "C" fn u54_3() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
+        init_fpu();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
@@ -120,7 +134,7 @@ extern "C" fn u54_3() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u54_4() {
     unsafe {
         // Rest of hardware initialization
@@ -128,10 +142,22 @@ extern "C" fn u54_4() {
         core::arch::asm!("csrs mie, {}", const pac::MIP_MSIP, options(nomem, nostack));
         pac::PLIC_init();
         pac::__enable_irq();
+        init_fpu();
 
         // Wait for the software interrupt
         core::arch::asm!("wfi", options(nomem, nostack));
 
         __hart4_entry();
+    }
+}
+
+fn init_fpu() {
+    unsafe {
+        // Enable FPU
+        mstatus::set_fs(mstatus::FS::Initial);
+        // Clear any pending exceptions
+        core::arch::asm!("csrwi fflags, 0");
+        // Clear FPU control and status register
+        core::arch::asm!("csrwi fcsr, 0");
     }
 }

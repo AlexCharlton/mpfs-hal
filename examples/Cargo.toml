@@ -1,27 +1,30 @@
 [package]
 name = "examples"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [dependencies]
-mpfs-hal = { workspace = true, features = ["alloc", "print"] }
-mpfs-hal-embassy = { workspace = true, features = [] }
+mpfs-hal = { workspace = true, default-features = true }
+mpfs-hal-embassy = { workspace = true }
 
 aligned = { workspace = true }
 critical-section = { workspace = true }
 embassy-time = { workspace = true }
-embassy-executor = { workspace = true, features = ["task-arena-size-8192"] }
-embassy-usb = "0.4"
+embassy-executor = { workspace = true }
+embassy-usb = { workspace = true, features = ["log"] }
+embassy-usb-driver = { workspace = true }
+embassy-usb-host = { workspace = true }
 embedded-io = { workspace = true }
 embedded-io-async = { workspace = true }
+libm = "0.2"
 log = { workspace = true }
-midi-msg = { version = "0.8.0", default-features = false }
+midi-msg = { version = "0.8", default-features = false }
 static_cell = { workspace = true }
-usbd-hid = "0.8"
+usbd-hid = "0.10"
 
 # TCP example
-embassy-net = { version = "0.6", features = [
+embassy-net = { workspace = true, features = [
     "tcp",
     "udp",
     "raw",
@@ -32,7 +35,10 @@ embassy-net = { version = "0.6", features = [
     "proto-ipv6",
     "multicast",
 ] }
-rand = { version = "0.9", default-features = false, features = ["small_rng"] }
+rand = { version = "0.9", default-features = false, features = [
+    "small_rng",
+    "alloc",
+] }
 
 # SD example
 block-device-adapters = { version = "0.2", git = "https://github.com/MabezDev/embedded-fatfs.git" }
@@ -48,6 +54,6 @@ sdspi = { version = "0.1", git = "https://github.com/MabezDev/embedded-fatfs.git
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-embedded-hal = { workspace = true }
-embassy-futures = "0.1"
+embassy-futures = { workspace = true }
 embassy-sync = { workspace = true }
 mbr-nostd = "0.1"

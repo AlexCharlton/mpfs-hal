@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
-use embassy_executor::{raw, Spawner};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use embassy_executor::{Spawner, raw};
 
 use mpfs_hal::pac;
 
 static SIGNAL_WORK_THREAD_MODE: [AtomicBool; pac::MPFS_HAL_LAST_HART as usize] =
     [const { AtomicBool::new(false) }; pac::MPFS_HAL_LAST_HART as usize];
 
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 fn __pender(context: *mut ()) {
     #[cfg(feature = "debug-logs")]
     mpfs_hal::println_unguarded!("hart {} has work pending\n", context as usize + 1);
@@ -54,29 +54,31 @@ impl Executor {
 
         loop {
             unsafe {
+                // Perform any pending work
                 self.inner.poll();
+
+                // Disable interrupts
+                core::arch::asm!(
+                    "csrci mstatus, {}",
+                    const pac::MIP_MSIP,
+                    options(nomem, nostack)
+                );
+                compiler_fence(Ordering::SeqCst);
+
                 let ctx = pac::hart_id() - 1;
-                let mut do_wfi = true;
-                critical_section::with(|_| {
-                    // If there is work to do, loop back to polling
-                    // TODO can we relax this?
-                    if SIGNAL_WORK_THREAD_MODE[ctx].load(Ordering::SeqCst) {
-                        #[cfg(feature = "debug-logs")]
-                        mpfs_hal::println_unguarded!("hart {} has work to do\n", ctx + 1);
-                        SIGNAL_WORK_THREAD_MODE[ctx].store(false, Ordering::SeqCst);
-                        do_wfi = false;
-                    }
-                });
-                // If not, wait for interrupt
-                // This is not in the critical section, since we want to release the critical-section lock
-                if do_wfi {
-                    #[cfg(feature = "debug-logs")]
-                    mpfs_hal::println_unguarded!("hart {} going to wfi\n", ctx + 1);
-                    core::arch::asm!("wfi");
+                // If there is work to do, skip going into WFI and loop back to polling
+                if !SIGNAL_WORK_THREAD_MODE[ctx].swap(false, Ordering::SeqCst) {
+                    // Since we don't have any work to do, wait for an interrupt
                     #[cfg(feature = "debug-logs")]
                     mpfs_hal::println_unguarded!("hart {} wfi\n", ctx + 1);
+                    core::arch::asm!("wfi");
+
+                    #[cfg(feature = "debug-logs")]
+                    mpfs_hal::println_unguarded!("hart {} waking from wfi\n", ctx + 1);
                 }
-                // if an interrupt occurred while waiting, it will be serviced here
+                // Re-enable interrupts
+                compiler_fence(Ordering::SeqCst);
+                core::arch::asm!("csrsi mstatus, {}", const pac::MIP_MSIP, options(nomem, nostack));
             }
         }
     }

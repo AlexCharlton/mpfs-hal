@@ -2,97 +2,12 @@ use core::future::poll_fn;
 use core::task::{Poll, Waker};
 use embassy_usb_driver::{
     Direction, Endpoint, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo,
-    EndpointType, Event,
+    EndpointType, Event, Speed,
 };
 
-use crate::{pac, Peripheral};
+use mpfs_hal::{Peripheral, pac};
 
-// This should not be raised unless related constants in Endpoint Common are ammended
-const NUM_ENDPOINTS: usize = 16;
-
-#[cfg(feature = "alloc")]
-mod ep {
-    extern crate alloc;
-
-    use super::{default_ep, EndpointState, MAX_FIFO_SIZE};
-    use crate::pac;
-    use aligned::{Aligned, A4};
-    use alloc::boxed::Box;
-    use core::task::Waker;
-
-    #[derive(Debug)]
-    pub struct EndpointController {
-        pub ep: pac::mss_usb_ep_t,
-        pub waker: Option<Waker>,
-        pub state: EndpointState,
-        pub buffer: Option<Box<Aligned<A4, [u8; MAX_FIFO_SIZE as usize]>>>,
-    }
-
-    impl EndpointController {
-        pub fn default() -> Self {
-            EndpointController {
-                ep: default_ep(),
-                waker: None,
-                state: EndpointState::Disabled,
-                buffer: None,
-            }
-        }
-        pub fn buffer_addr(&mut self) -> &mut [u8] {
-            if self.buffer.is_none() {
-                self.buffer = Some(Box::new(Aligned::<A4, _>([0; MAX_FIFO_SIZE as usize])));
-            }
-            self.buffer.as_mut().unwrap().as_mut_slice()
-        }
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-mod ep {
-    use super::{default_ep, EndpointState};
-    use crate::pac;
-    use core::task::Waker;
-
-    #[derive(Debug)]
-    pub struct EndpointController {
-        pub ep: pac::mss_usb_ep_t,
-        pub waker: Option<Waker>,
-        pub state: EndpointState,
-    }
-
-    impl EndpointController {
-        pub fn default() -> Self {
-            EndpointController {
-                ep: default_ep(),
-                waker: None,
-                state: EndpointState::Disabled,
-            }
-        }
-        pub fn buffer_addr(&mut self) -> &mut [u8] {
-            panic!("USB buffers that aren't 4-byte aligned are not supported without alloc");
-        }
-    }
-}
-
-use ep::*;
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum EndpointState {
-    Idle,
-    Rx,
-    Tx,
-    TxLast,
-    TxReadyForNext,
-    Setup,
-    RxComplete(usize),
-    TxComplete,
-    Disabled,
-}
-
-impl Default for EndpointState {
-    fn default() -> Self {
-        EndpointState::Disabled
-    }
-}
+use super::common::*;
 
 // Endpoints are named relative to the host, so In is a device Tx and Out is a device Rx
 // +1 for the control endpoint at index 0
@@ -101,44 +16,38 @@ static mut EP_IN_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
 static mut EP_OUT_CONTROLLER: [Option<EndpointController>; NUM_ENDPOINTS + 1] =
     [const { None }; NUM_ENDPOINTS + 1];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum UsbSpeed {
-    Full, // 12Mbps
-    High, // 480Mbps
-}
-
-impl UsbSpeed {
-    fn value(&self) -> pac::mss_usb_device_speed_t {
-        match self {
-            UsbSpeed::Full => pac::mss_usb_device_speed_t_MSS_USB_DEVICE_FS,
-            UsbSpeed::High => pac::mss_usb_device_speed_t_MSS_USB_DEVICE_HS,
-        }
-    }
-}
-
-impl Default for UsbSpeed {
-    fn default() -> Self {
-        UsbSpeed::High
-    }
-}
-
 //------------------------------------------------------
-// Driver
+// MARK: Driver
 
-#[derive(Default)]
-struct EndpointDetails {
-    used: bool,
-    fifo_addr: u16,
-    fifo_size: u16,
-}
-
-#[derive(Default)]
 pub struct UsbDriver<'a> {
-    speed: UsbSpeed,
+    speed: Speed,
     phantom: core::marker::PhantomData<&'a ()>,
     // Endpoint number 1 maps to index 0
     in_endpoints_allocated: [EndpointDetails; NUM_ENDPOINTS],
     out_endpoints_allocated: [EndpointDetails; NUM_ENDPOINTS],
+}
+
+impl<'a> Default for UsbDriver<'a> {
+    fn default() -> Self {
+        UsbDriver {
+            speed: Speed::High,
+            phantom: core::marker::PhantomData,
+            in_endpoints_allocated: [const {
+                EndpointDetails {
+                    used: false,
+                    fifo_addr: 0,
+                    fifo_size: 0,
+                }
+            }; NUM_ENDPOINTS],
+            out_endpoints_allocated: [const {
+                EndpointDetails {
+                    used: false,
+                    fifo_addr: 0,
+                    fifo_size: 0,
+                }
+            }; NUM_ENDPOINTS],
+        }
+    }
 }
 
 static mut DRIVER_TAKEN: bool = false;
@@ -162,7 +71,7 @@ impl<'a> Peripheral for UsbDriver<'a> {
 
 impl<'a> UsbDriver<'a> {
     pub fn set_full_speed(&mut self) {
-        self.speed = UsbSpeed::Full;
+        self.speed = Speed::Full;
     }
 
     fn init(&self, control_packet_size: u16) {
@@ -182,7 +91,7 @@ impl<'a> UsbDriver<'a> {
             pac::init_usb_dma_upper_address();
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_DMA_INT_OFFSET, 2);
             pac::PLIC_SetPriority(pac::PLIC_IRQn_Type_PLIC_USB_MC_INT_OFFSET, 2);
-            pac::MSS_USBD_CIF_init(self.speed.value());
+            pac::MSS_USBD_CIF_init(speed_to_mss_value(self.speed));
             pac::MSS_USBD_CIF_cep_configure();
             EP_IN_CONTROLLER[0] = Some({
                 let mut ep = EndpointController::default();
@@ -211,6 +120,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
     fn alloc_endpoint_out(
         &mut self,
         endpoint_type: EndpointType,
+        endpoint_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
@@ -219,62 +129,44 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             endpoint_type,
             max_packet_size
         );
-        if max_packet_size > MAX_FIFO_SIZE {
-            return Err(EndpointAllocError);
-        }
-        // FIFO size must be a power of 2
-        let mut fifo_size = max_packet_size.next_power_of_two();
-        if fifo_size < 1024 {
-            // If we're using a small enough packet size, we increase the FIFO size
-            // to allow for double packet buffering
-            fifo_size = (fifo_size + 1).next_power_of_two();
-        }
-        if let Some(i) = self.out_endpoints_allocated.iter().position(|x| !x.used) {
-            let fifo_addr = if i == 0 {
-                OUT_ENDPOINTS_START_ADDR
-            } else {
-                self.out_endpoints_allocated[i - 1].fifo_addr
-                    + self.out_endpoints_allocated[i - 1].fifo_size
-            };
-            if fifo_addr + fifo_size > IN_ENDPOINTS_START_ADDR {
-                log::error!(
-                    "FIFO address is out of bounds for out endpoint {:?} with size {:?}",
-                    i,
-                    max_packet_size
+        match alloc_fifo_addr(
+            max_packet_size,
+            &mut self.out_endpoints_allocated,
+            endpoint_addr,
+        ) {
+            Ok(i) => {
+                let ep = configure_endpoint_controller(
+                    Direction::Out,
+                    i + 1,
+                    endpoint_type,
+                    max_packet_size,
+                    self.out_endpoints_allocated[i],
+                    self.speed,
                 );
+                // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
+                unsafe {
+                    EP_OUT_CONTROLLER[i + 1] = Some(ep);
+                }
+                Ok(EndpointOut {
+                    phantom: core::marker::PhantomData,
+                    info: EndpointInfo {
+                        addr: EndpointAddress::from_parts(i + 1, Direction::Out),
+                        max_packet_size: max_packet_size,
+                        interval_ms: interval_ms,
+                        ep_type: endpoint_type,
+                    },
+                })
+            }
+            Err(_) => {
                 return Err(EndpointAllocError);
             }
-            self.out_endpoints_allocated[i] = EndpointDetails {
-                used: true,
-                fifo_addr,
-                fifo_size,
-            };
-            configure_endpoint_controller(
-                Direction::Out,
-                i + 1,
-                endpoint_type,
-                max_packet_size,
-                fifo_addr,
-                fifo_size,
-                self.speed,
-            );
-            Ok(EndpointOut {
-                phantom: core::marker::PhantomData,
-                info: EndpointInfo {
-                    addr: EndpointAddress::from_parts(i + 1, Direction::Out),
-                    max_packet_size: max_packet_size,
-                    interval_ms: interval_ms,
-                    ep_type: endpoint_type,
-                },
-            })
-        } else {
-            Err(EndpointAllocError)
         }
     }
 
     fn alloc_endpoint_in(
         &mut self,
         endpoint_type: EndpointType,
+        endpoint_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -283,57 +175,37 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
             endpoint_type,
             max_packet_size
         );
-        if max_packet_size > MAX_FIFO_SIZE {
-            log::error!("Max packet size is greater than the allowed max packet size for this transfer type {} expected for {:?}, got {}", MAX_FIFO_SIZE, endpoint_type, max_packet_size);
-            return Err(EndpointAllocError);
-        }
-        // FIFO size must be a power of 2
-        let mut fifo_size = max_packet_size.next_power_of_two();
-        if fifo_size < 1024 {
-            // If we're using a small enough packet size, we increase the FIFO size
-            // to allow for double packet buffering
-            fifo_size = (fifo_size + 1).next_power_of_two();
-        }
-        if let Some(i) = self.in_endpoints_allocated.iter().position(|x| !x.used) {
-            let fifo_addr = if i == 0 {
-                IN_ENDPOINTS_START_ADDR
-            } else {
-                self.in_endpoints_allocated[i - 1].fifo_addr
-                    + self.in_endpoints_allocated[i - 1].fifo_size
-            };
-            if fifo_addr.checked_add(fifo_size).is_none() {
-                log::error!(
-                    "FIFO address is out of bounds for in endpoint {:?} with size {:?}",
-                    i,
-                    max_packet_size
+        match alloc_fifo_addr(
+            max_packet_size,
+            &mut self.in_endpoints_allocated,
+            endpoint_addr,
+        ) {
+            Ok(i) => {
+                let ep = configure_endpoint_controller(
+                    Direction::In,
+                    i + 1,
+                    endpoint_type,
+                    max_packet_size,
+                    self.in_endpoints_allocated[i],
+                    self.speed,
                 );
+                // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
+                unsafe {
+                    EP_IN_CONTROLLER[i + 1] = Some(ep);
+                }
+                Ok(EndpointIn {
+                    phantom: core::marker::PhantomData,
+                    info: EndpointInfo {
+                        addr: EndpointAddress::from_parts(i + 1, Direction::In),
+                        max_packet_size: max_packet_size,
+                        interval_ms: interval_ms,
+                        ep_type: endpoint_type,
+                    },
+                })
+            }
+            Err(_) => {
                 return Err(EndpointAllocError);
             }
-            self.in_endpoints_allocated[i] = EndpointDetails {
-                used: true,
-                fifo_addr: fifo_addr,
-                fifo_size: fifo_size,
-            };
-            configure_endpoint_controller(
-                Direction::In,
-                i + 1,
-                endpoint_type,
-                max_packet_size,
-                fifo_addr,
-                fifo_size,
-                self.speed,
-            );
-            Ok(EndpointIn {
-                phantom: core::marker::PhantomData,
-                info: EndpointInfo {
-                    addr: EndpointAddress::from_parts(i + 1, Direction::In),
-                    max_packet_size: max_packet_size,
-                    interval_ms: interval_ms,
-                    ep_type: endpoint_type,
-                },
-            })
-        } else {
-            Err(EndpointAllocError)
         }
     }
 
@@ -367,7 +239,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
 }
 
 //------------------------------------------------------
-// EndpointOut
+// MARK: EndpointOut
 
 // Host -> Device
 pub struct EndpointOut<'a> {
@@ -421,7 +293,7 @@ impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
             }
         }
 
-        Ok(read_size)
+        Ok(read_size.unwrap())
     }
 }
 
@@ -455,7 +327,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
 }
 
 //------------------------------------------------------
-// EndpointIn
+// MARK: EndpointIn
 
 // Device -> Host
 pub struct EndpointIn<'a> {
@@ -539,100 +411,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
 }
 
 //------------------------------------------------------
-// Endpoint Common
-//
-// Endpoints need to have a FIFO assigned to an address in the MSS USB internal RAM.
-// The RAM is 65k (0xFFFF) bytes, so using 32 endpoints (16 in + 16 out)
-// allows us to give 2048 bytes to each endpoint if we devide it equally. We will allow
-// the user to configure the endpoint with a max packet size of up to 4096 bytes, however
-// which means that not all endpoints will be able to have the maximum packet size.
-// Further, we will devide the FIFO into 2 parts, with 0x0000 being the start address for
-// the out endpoints and 0x8000 being the start address for the in endpoints.
-//
-// Additionally, we have 4 DMA channels available, and they can each only be mapped to
-// one endpoint. Because of this we will configure channels 1 and 2 (for both in and out)
-// to use DMA. DMA channel 1, 2 will be used for Out endpoints and DMA channel 3, 4 will
-// be used for In endpoints.
-//
-// Reference: mss_usb_device.h
-
-const MAX_FIFO_SIZE: u16 = 4096;
-const OUT_ENDPOINTS_START_ADDR: u16 = 0x0000;
-const IN_ENDPOINTS_START_ADDR: u16 = 0x8000;
-
-fn endpoint_to_dma_channel(endpoint: usize, direction: Direction) -> pac::mss_usb_dma_channel_t {
-    match (endpoint, direction) {
-        (1, Direction::In) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL1,
-        (2, Direction::In) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL2,
-        (1, Direction::Out) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL3,
-        (2, Direction::Out) => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL4,
-        _ => pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA,
-    }
-}
-
-fn configure_endpoint_controller(
-    direction: Direction,
-    endpoint: usize,
-    endpoint_type: EndpointType,
-    max_packet_size: u16,
-    fifo_addr: u16,
-    fifo_size: u16,
-    speed: UsbSpeed,
-) {
-    // Get the standard max packet size based on speed and transfer type
-    let std_max_pkt_sz = if speed == UsbSpeed::High {
-        match endpoint_type {
-            EndpointType::Bulk => pac::USB_HS_BULK_MAX_PKT_SIZE,
-            EndpointType::Interrupt => pac::USB_HS_INTERRUPT_MAX_PKT_SIZE,
-            EndpointType::Isochronous => pac::USB_HS_ISO_MAX_PKT_SIZE,
-            EndpointType::Control => pac::USB_HS_BULK_MAX_PKT_SIZE, // Control uses same as bulk
-        }
-    } else {
-        match endpoint_type {
-            EndpointType::Bulk => pac::USB_FS_BULK_MAX_PKT_SIZE,
-            EndpointType::Interrupt => pac::USB_FS_INTERRUPT_MAX_PKT_SIZE,
-            EndpointType::Isochronous => pac::USB_FS_ISO_MAX_PKT_SIZE,
-            EndpointType::Control => pac::USB_FS_BULK_MAX_PKT_SIZE,
-        }
-    };
-
-    if max_packet_size > std_max_pkt_sz as u16 {
-        panic!("Max packet size is greater than the allowed max packet size for this transfer type {} expected for {:?}, got {}", std_max_pkt_sz, endpoint_type, max_packet_size);
-    }
-
-    let dma_channel = endpoint_to_dma_channel(endpoint, direction);
-    let dma_enable = dma_channel != pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA;
-
-    // Configure double packet buffering if there's enough FIFO space reserved
-    let dpb_enable = max_packet_size * 2 <= fifo_size;
-
-    let ep = pac::mss_usb_ep_t {
-        num: endpoint as u32,
-        xfr_type: transfer_type(endpoint_type),
-        max_pkt_size: max_packet_size,
-        fifo_size,
-        fifo_addr,
-        dma_enable: dma_enable as u8,
-        dpb_enable: dpb_enable as u8,
-        dma_channel,
-        ..default_ep()
-    };
-
-    unsafe {
-        // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
-        if direction == Direction::Out {
-            EP_OUT_CONTROLLER[endpoint] = Some(EndpointController {
-                ep,
-                ..EndpointController::default()
-            });
-        } else {
-            EP_IN_CONTROLLER[endpoint] = Some(EndpointController {
-                ep,
-                ..EndpointController::default()
-            });
-        }
-    }
-}
+// Endpoint config
 
 fn configure_endpoint(direction: Direction, endpoint: usize) {
     critical_section::with(|_| unsafe {
@@ -652,17 +431,8 @@ fn configure_endpoint(direction: Direction, endpoint: usize) {
     });
 }
 
-fn transfer_type(endpoint_type: EndpointType) -> pac::mss_usb_xfr_type_t {
-    match endpoint_type {
-        EndpointType::Bulk => pac::mss_usb_xfr_type_t_MSS_USB_XFR_BULK,
-        EndpointType::Interrupt => pac::mss_usb_xfr_type_t_MSS_USB_XFR_INTERRUPT,
-        EndpointType::Isochronous => pac::mss_usb_xfr_type_t_MSS_USB_XFR_ISO,
-        EndpointType::Control => pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
-    }
-}
-
 //------------------------------------------------------
-// ControlPipe
+// MARK: ControlPipe
 pub struct ControlPipe<'a> {
     phantom: core::marker::PhantomData<&'a ()>,
     max_packet_size: usize,
@@ -729,7 +499,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             })
         })
         .await;
-        Ok(read_size)
+        Ok(read_size.unwrap())
     }
 
     // Device -> Host
@@ -838,43 +608,8 @@ fn read_control_packet(buf: &mut [u8]) {
     }
 }
 
-const fn default_ep() -> pac::mss_usb_ep_t {
-    pac::mss_usb_ep_t {
-        // Important for configuration
-        num: 0,
-        xfr_type: pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL,
-        max_pkt_size: 0,
-        fifo_size: 0,
-        fifo_addr: 0,
-        dma_enable: 0,
-        dpb_enable: 0,
-        dma_channel: pac::mss_usb_dma_channel_t_MSS_USB_DMA_CHANNEL_NA,
-
-        // Used for transfer
-        buf_addr: core::ptr::null_mut(),
-        txn_length: 0,
-        xfr_length: 0,
-        txn_count: 0,
-        xfr_count: 0,
-        state: pac::mss_usb_ep_state_t_MSS_USB_EP_VALID,
-
-        // Used for configuration by the high-level driver, but not by this
-        add_zlp: 0,     // Used by the high-level driver that we don't use
-        num_usb_pkt: 1, // This must always be 1, according to mss_usb_device.h
-
-        // Unused?
-        cep_cmd_addr: core::ptr::null_mut(),
-        cep_data_dir: 0,
-        disable_ping: 0,
-        interval: 0,
-        stall: 0,
-        req_pkt_n: 0,
-        tdev_idx: 0,
-    }
-}
-
 //------------------------------------------------------
-// Bus
+// MARK: Bus
 
 struct BusEvent {
     reset: bool,
@@ -1032,24 +767,30 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
 }
 
 //------------------------------------------------------
-// MSS USB CIF Callbacks
+// MARK: MSS USB CIF Callbacks
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[doc(hidden)]
 #[allow(non_upper_case_globals)]
 pub static g_mss_usbd_cb: pac::mss_usbd_cb_t = pac::mss_usbd_cb_t {
     usbd_ep_rx: Some(usbd_ep_rx),
     usbd_ep_tx_complete: Some(usbd_ep_tx_complete),
     usbd_cep_setup: Some(usbd_cep_setup),
-    usbd_cep_rx: Some(usbd_cep_rx),
-    usbd_cep_tx_complete: Some(usbd_cep_tx_complete),
-    usbd_sof: Some(usbd_sof),
     usbd_reset: Some(usbd_reset),
     usbd_suspend: Some(usbd_suspend),
     usbd_resume: Some(usbd_resume),
     usbd_disconnect: Some(usbd_disconnect),
     usbd_dma_handler: Some(usbd_dma_handler),
+
+    // This is never called
+    usbd_sof: None,
+    // These will never be called, since we don't use the CIF's cep_state, which is what dictates
+    // whether setup, rx, or tx_complete is called
+    // Instead we look at the state of the endpoint controller directly in cep_setup
+    usbd_cep_rx: None,
+    usbd_cep_tx_complete: None,
 };
+
 extern "C" fn usbd_cep_setup(status: u8) {
     unsafe {
         log::trace!(
@@ -1058,26 +799,35 @@ extern "C" fn usbd_cep_setup(status: u8) {
             EP_OUT_CONTROLLER[0].as_mut().unwrap().state,
             EP_IN_CONTROLLER[0].as_mut().unwrap().state
         );
+
+        if EP_OUT_CONTROLLER[0].is_none() {
+            // We haven't initialized the USB device.
+            // This callback can be called even if the MPFS isn't intended to be a USB device (e.g. it's meant to be a host). Because of this, we just ignore it.
+            return;
+        }
     }
+
     // This is called in three cases:
     // 1. When the control endpoint is stalled
-    // 2. When the control endpoint recieves a setup packet before the setup has completed
-    // 3. When the control endpoint recieves a normal setup packet
+    // 2. When the control endpoint receives a setup packet before the setup has completed
+    // 3. When the control endpoint receives a normal setup packet
     //
     // The CIF clears the PHY of the stall in the first case already, so there's nothing left to do
     // The other two we can handle the same (I think?)
     critical_section::with(|_| unsafe {
         let read_ready = pac::MSS_USB_CIF_cep_is_rxpktrdy() != 0;
-        if EP_OUT_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Rx && read_ready {
+        let out_state = &mut EP_OUT_CONTROLLER[0].as_mut().unwrap().state;
+        let in_state = &mut EP_IN_CONTROLLER[0].as_mut().unwrap().state;
+        if *out_state == EndpointState::Rx && read_ready {
             // MSS_USB_CIF_cep_rx_byte_count
             let len = (*pac::USB).INDEXED_CSR.DEVICE_EP0.COUNT0 & pac::COUNT0_REG_MASK as u16;
-            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::RxComplete(len as usize);
-        } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::Tx {
-            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxReadyForNext;
-        } else if EP_IN_CONTROLLER[0].as_mut().unwrap().state == EndpointState::TxLast {
-            EP_IN_CONTROLLER[0].as_mut().unwrap().state = EndpointState::TxComplete;
+            *out_state = EndpointState::RxComplete(Ok(len as usize));
+        } else if *in_state == EndpointState::Tx {
+            *in_state = EndpointState::TxReadyForNext;
+        } else if *in_state == EndpointState::TxLast {
+            *in_state = EndpointState::TxComplete;
         } else if read_ready {
-            EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
+            *out_state = EndpointState::Setup;
         }
 
         #[allow(static_mut_refs)]
@@ -1091,17 +841,19 @@ extern "C" fn usbd_cep_setup(status: u8) {
 }
 
 unsafe fn rx_complete(num: usize, received_count: u32) {
-    critical_section::with(|_| {
-        EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
-            EndpointState::RxComplete(received_count as usize);
-    });
-    if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
-        .as_mut()
-        .unwrap()
-        .waker
-        .as_mut()
-    {
-        waker.wake_by_ref();
+    unsafe {
+        critical_section::with(|_| {
+            EP_OUT_CONTROLLER[num as usize].as_mut().unwrap().state =
+                EndpointState::RxComplete(Ok(received_count as usize));
+        });
+        if let Some(waker) = EP_OUT_CONTROLLER[num as usize]
+            .as_mut()
+            .unwrap()
+            .waker
+            .as_mut()
+        {
+            waker.wake_by_ref();
+        }
     }
 }
 
@@ -1224,22 +976,6 @@ extern "C" fn usbd_dma_handler(
             }
         }
     }
-}
-
-extern "C" fn usbd_cep_rx(_status: u8) {
-    // This will never be called, since we don't use the CIF's cep_state, which is what dictates
-    // whether setup, rx, or tx_complete is called
-    // Instead we look at the state of the endpoint controller directly in cep_setup
-}
-
-extern "C" fn usbd_cep_tx_complete(_status: u8) {
-    // This will never be called, since we don't use the CIF's cep_state, which is what dictates
-    // whether setup, rx, or tx_complete is called
-    // Instead we look at the state of the endpoint controller directly in cep_setup
-}
-
-extern "C" fn usbd_sof(_status: u8) {
-    // This is not called
 }
 
 extern "C" fn usbd_reset() {

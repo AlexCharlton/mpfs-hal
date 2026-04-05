@@ -35,7 +35,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }
 
 #[derive(Debug, PartialEq)]
@@ -84,7 +84,9 @@ fn init_emmc() -> Result<(), Error> {
 }
 
 unsafe fn mmc_reset_block() {
-    (*pac::SYSREG).SUBBLK_CLOCK_CR |= pac::SUBBLK_CLOCK_CR_MMC_MASK;
-    (*pac::SYSREG).SOFT_RESET_CR |= pac::SOFT_RESET_CR_MMC_MASK;
-    (*pac::SYSREG).SOFT_RESET_CR &= !pac::SOFT_RESET_CR_MMC_MASK;
+    unsafe {
+        (*pac::SYSREG).SUBBLK_CLOCK_CR |= pac::SUBBLK_CLOCK_CR_MMC_MASK;
+        (*pac::SYSREG).SOFT_RESET_CR |= pac::SOFT_RESET_CR_MMC_MASK;
+        (*pac::SYSREG).SOFT_RESET_CR &= !pac::SOFT_RESET_CR_MMC_MASK;
+    }
 }

@@ -3,22 +3,21 @@
 
 // https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usb_hid_mouse.rs used as reference
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use embassy_futures::join::join;
 use embassy_time::Timer;
-use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
-use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidSubclass, HidWriter, ReportId, RequestHandler, State,
+};
+use embassy_usb::control::OutResponse;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 
 use mpfs_hal::Peripheral;
 
-#[macro_use]
-extern crate mpfs_hal;
-
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
-    let mut driver = mpfs_hal::usb::device::UsbDriver::take().unwrap();
+    let mut driver = mpfs_hal_embassy::usb::device::UsbDriver::take().unwrap();
     driver.set_full_speed();
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -51,6 +50,8 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::No,
+        hid_boot_protocol: HidBootProtocol::None,
     };
 
     let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
@@ -82,7 +83,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
         }
     };
 
-    println!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
+    log::info!("Hello, world!\nWe're going to wiggle your mouse along the X axis 🖱 ️↔️ ");
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, hid_fut).await;
@@ -110,6 +111,11 @@ impl RequestHandler for MyRequestHandler {
     }
 }
 
+#[mpfs_hal_embassy::embassy_hart2_main]
+async fn hart2_main(_spawner: embassy_executor::Spawner) {
+    mpfs_hal::log_task().await;
+}
+
 #[mpfs_hal::init_once]
 fn config() {
     mpfs_hal::init_logger(log::LevelFilter::Trace);
@@ -118,5 +124,5 @@ fn config() {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     mpfs_hal::print_panic(info);
-    loop {}
+    mpfs_hal::low_power_loop_forever()
 }

@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ItemFn};
+use syn::{ItemFn, parse_macro_input};
 
 //-------------------------------------------------------------
 // (Non-embassy) Entry point macros
@@ -12,7 +12,7 @@ fn hart1_main() {
 }
 
 Expands to:
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn __hart1_entry() {
     <main_body>
 }
@@ -24,7 +24,7 @@ pub fn hart1_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_body = &input_fn.block;
 
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub fn __hart1_entry() {
             #fn_body
         }
@@ -39,7 +39,7 @@ pub fn hart2_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_body = &input_fn.block;
 
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub fn __hart2_entry() {
             #fn_body
         }
@@ -54,7 +54,7 @@ pub fn hart3_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_body = &input_fn.block;
 
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub fn __hart3_entry() {
             #fn_body
         }
@@ -69,7 +69,7 @@ pub fn hart4_main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_body = &input_fn.block;
 
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub fn __hart4_entry() {
             #fn_body
         }
@@ -83,7 +83,7 @@ pub fn init_once(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
     let fn_body = &input_fn.block;
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub fn __init_once() {
             #fn_body
         }
@@ -130,7 +130,7 @@ pub fn embassy_hart1_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
 
     // Generate the expanded code
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         fn __hart1_entry() {
             static EXECUTOR1: ::mpfs_hal_embassy::static_cell::StaticCell<::mpfs_hal_embassy::Executor> =
                 ::mpfs_hal_embassy::static_cell::StaticCell::new();
@@ -138,7 +138,7 @@ pub fn embassy_hart1_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 
@@ -162,7 +162,7 @@ pub fn embassy_hart2_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
 
     // Generate the expanded code
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         fn __hart2_entry() {
             static EXECUTOR1: ::mpfs_hal_embassy::static_cell::StaticCell<::mpfs_hal_embassy::Executor> =
                 ::mpfs_hal_embassy::static_cell::StaticCell::new();
@@ -170,7 +170,7 @@ pub fn embassy_hart2_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 
@@ -194,7 +194,7 @@ pub fn embassy_hart3_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
 
     // Generate the expanded code
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         fn __hart3_entry() {
             static EXECUTOR1: ::mpfs_hal_embassy::static_cell::StaticCell<::mpfs_hal_embassy::Executor> =
                 ::mpfs_hal_embassy::static_cell::StaticCell::new();
@@ -202,7 +202,7 @@ pub fn embassy_hart3_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 
@@ -226,7 +226,7 @@ pub fn embassy_hart4_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
 
     // Generate the expanded code
     let expanded = quote! {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         fn __hart4_entry() {
             static EXECUTOR1: ::mpfs_hal_embassy::static_cell::StaticCell<::mpfs_hal_embassy::Executor> =
                 ::mpfs_hal_embassy::static_cell::StaticCell::new();
@@ -234,7 +234,7 @@ pub fn embassy_hart4_main(_attr: TokenStream, item: TokenStream) -> TokenStream 
             EXECUTOR1
                 .init(::mpfs_hal_embassy::Executor::new())
                 .run(|spawner| {
-                    spawner.must_spawn(#fn_name(spawner));
+                    spawner.spawn(#fn_name(spawner).unwrap());
                 });
         }
 

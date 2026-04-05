@@ -1,0 +1,25 @@
+[package]
+name = "dpi-display-examples"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+mpfs-hal = { path = "../../mpfs-hal", default-features = false, features = [
+    "alloc",
+    "print",
+    "log",
+    "log-colors",
+    "beaglev-fire-no-cape",
+] }
+mpfs-hal-embassy = { path = "../../mpfs-hal-embassy" }
+dpi-display = { path = "../", features = ["embedded-graphics"] }
+
+embedded-graphics = { version = "0.8" }
+# embassy-time = { path = "../../../external/embassy/embassy-time" }
+embassy-time = { git = "https://github.com/AlexCharlton/embassy", branch = "main" }
+# embassy-executor = { path = "../../../external/embassy/embassy-executor" }
+embassy-executor = { git = "https://github.com/AlexCharlton/embassy", branch = "main" }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+log = { version = "0.4" }

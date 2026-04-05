@@ -1,0 +1,27 @@
+[package]
+name = "dpi-display"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = ["examples"]
+
+[dependencies]
+mpfs-hal = { path = "../mpfs-hal", default-features = false, features = [
+    "beaglev-fire-no-cape",
+] }
+
+critical-section = { version = "1.2", features = ["restore-state-u8"] }
+embedded-graphics = { version = "0.8", optional = true }
+embedded-temu = { git = "https://github.com/AlexCharlton/embedded-temu", branch = "main", optional = true }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embassy-time = { git = "https://github.com/AlexCharlton/embassy", branch = "main" }
+log = { version = "0.4" }
+paste = "1.0"
+
+[features]
+default = ["resolution-800x480"]
+resolution-800x480 = []
+rotate-90 = []

@@ -120,10 +120,10 @@ impl SetConfig for Qspi {
 impl embedded_hal::spi::SpiBus<u8> for Qspi {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
         let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
-        log::debug!("Reading from QSPI. Buffer aligned: {:?}", buffer_aligned);
+        log::trace!("Reading from QSPI. Buffer aligned: {:?}", buffer_aligned);
         unsafe {
-            // Wait until QSPI is ready
-            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+            // Wait until QSPI is ready - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_READY_MASK) == 0 {
                 core::hint::spin_loop();
             }
 
@@ -145,6 +145,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 pac::FRMS_FBYTE_MASK
             };
             (*pac::QSPI).FRAMES = frame_ctrl;
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
             let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
             if buffer_aligned {
@@ -155,18 +156,22 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 let words_32 = words.as_ptr() as *mut u32;
 
                 for i in 0..word_count {
-                    // Wait until transmit FIFO is not full
-                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    // Send dummy data
-                    (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+                    // Send dummy data - needs volatile write
+                    core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX4, 0xFFFFFFFF);
 
-                    // Wait until receive FIFO is not empty
-                    while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    // Wait until receive FIFO is not empty - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RFEMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    *words_32.add(i) = (*pac::QSPI).RXDATAX4;
+                    *words_32.add(i) = core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 }
 
                 // Disable 32-bit transfer mode
@@ -181,43 +186,45 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
             for i in remaining_start..total_bytes {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                // Wait until transmit FIFO is not full - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
-                // Send dummy data
-                (*pac::QSPI).TXDATAX1 = 0xFF;
+                // Send dummy data - needs volatile write
+                core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX1, 0xFF);
 
-                // Wait until receive FIFO is not empty
-                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                // Wait until receive FIFO is not empty - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RFEMPTY_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
-                words[i] = (*pac::QSPI).RXDATAX1;
+                words[i] = core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1);
             }
-            // Make sure the read is complete (but we shouldn't get here)
-            while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
+            // Make sure the read is complete (but we shouldn't get here) - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RDONE_MASK) == 0 {
                 log::warn!("Warning: read not complete");
-                if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
-                    (*pac::QSPI).RXDATAX4;
+                if (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_FLAGSX4_MASK) != 0 {
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 } else {
-                    (*pac::QSPI).RXDATAX1;
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1);
                 }
             }
         }
-        log::debug!("QSPI read complete: {:x?}", words);
+        log::trace!("QSPI read complete: {:x?}", words);
         Ok(())
     }
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
-        log::debug!(
+        log::trace!(
             "Writing to QSPI {:x?}. Buffer aligned: {:?}",
             words,
             buffer_aligned
         );
         unsafe {
-            // Wait until QSPI is ready
-            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+            // Wait until QSPI is ready - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_READY_MASK) == 0 {
                 core::hint::spin_loop();
             }
 
@@ -235,6 +242,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
 
             frame_ctrl |= pac::FRMS_FWORD_MASK; // Set full word mode
             (*pac::QSPI).FRAMES = frame_ctrl;
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
             let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
             if buffer_aligned {
@@ -245,11 +253,14 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 let words_32 = words.as_ptr() as *const u32;
 
                 for i in 0..word_count {
-                    // Wait until transmit FIFO is not full
-                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    (*pac::QSPI).TXDATAX4 = *words_32.add(i);
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX4, *words_32.add(i));
                 }
 
                 // Disable 32-bit transfer mode
@@ -264,17 +275,20 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
             for i in remaining_start..total_bytes {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                // Wait until transmit FIFO is not full - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
-                (*pac::QSPI).TXDATAX1 = words[i];
+                // TX_DATA write needs to be volatile
+                core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX1, words[i]);
             }
-            while ((*pac::QSPI).STATUS & pac::STTS_TDONE_MASK) == 0 {
+            // Wait until transfer done - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TDONE_MASK) == 0 {
                 core::hint::spin_loop();
             }
         }
-        log::debug!("QSPI write complete");
+        log::trace!("QSPI write complete");
         Ok(())
     }
 
@@ -282,14 +296,14 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
         let buffer_aligned: bool = write.as_ptr().align_offset(4) == 0
             && read.as_ptr().align_offset(4) == 0
             && (write.len() > 3 || read.len() > 3);
-        log::debug!(
+        log::trace!(
             "QSPI transfer {:x?}. Buffer aligned: {:?}",
             write,
             buffer_aligned
         );
         unsafe {
-            // Wait until QSPI is ready
-            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+            // Wait until QSPI is ready - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_READY_MASK) == 0 {
                 core::hint::spin_loop();
             }
 
@@ -311,6 +325,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 pac::FRMS_FBYTE_MASK
             };
             (*pac::QSPI).FRAMES = frame_ctrl;
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
             // Enable 32-bit transfer mode
             (*pac::QSPI).CONTROL |= pac::CTRL_FLAGSX4_MASK;
@@ -323,26 +338,30 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             let rx_word_count = read.len() / 4;
             if buffer_aligned {
                 for i in 0..word_count {
-                    // Wait until transmit FIFO is not full
-                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
                     if i < tx_word_count {
-                        // Write data
-                        (*pac::QSPI).TXDATAX4 = *write_32.add(i);
+                        // Write data - needs volatile write
+                        core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX4, *write_32.add(i));
                     } else {
-                        // Send dummy data
-                        (*pac::QSPI).TXDATAX4 = 0xFFFFFFFF;
+                        // Send dummy data - needs volatile write
+                        core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX4, 0xFFFFFFFF);
                     }
 
-                    // Wait until receive FIFO is not empty
-                    while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    // Wait until receive FIFO is not empty - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RFEMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
                     if i < rx_word_count {
-                        *read_32.add(i) = (*pac::QSPI).RXDATAX4;
+                        *read_32.add(i) = core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                     } else {
-                        (*pac::QSPI).RXDATAX1; // discard
+                        core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1); // discard
                     }
                 }
 
@@ -358,52 +377,54 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
             for i in remaining_start..total_bytes {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                // Wait until transmit FIFO is not full - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
                 if i < write.len() {
-                    // Write data
-                    (*pac::QSPI).TXDATAX1 = write[i];
+                    // Write data - needs volatile write
+                    core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX1, write[i]);
                 } else {
-                    // Send dummy data
-                    (*pac::QSPI).TXDATAX1 = 0xFF;
+                    // Send dummy data - needs volatile write
+                    core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX1, 0xFF);
                 }
 
-                // Wait until receive FIFO is not empty
-                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                // Wait until receive FIFO is not empty - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RFEMPTY_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
                 if i < read.len() {
-                    read[i] = (*pac::QSPI).RXDATAX1;
+                    read[i] = core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1);
                 } else {
-                    (*pac::QSPI).RXDATAX1; // discard
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1); // discard
                 }
             }
-            // Make sure the read is complete (but we shouldn't get here)
-            while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
+            // Make sure the read is complete (but we shouldn't get here) - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RDONE_MASK) == 0 {
                 log::warn!("Warning: read not complete");
-                if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
-                    (*pac::QSPI).RXDATAX4;
+                if (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_FLAGSX4_MASK) != 0 {
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 } else {
-                    (*pac::QSPI).RXDATAX1;
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1);
                 }
             }
         }
-        log::debug!("QSPI transfer received {:x?}", read);
+        log::trace!("QSPI transfer received {:x?}", read);
         Ok(())
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
         let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
-        log::debug!(
+        log::trace!(
             "QSPI transfer_in_place {:x?}. Buffer aligned: {:?}",
             words,
             buffer_aligned
         );
         unsafe {
-            // Wait until QSPI is ready
-            while ((*pac::QSPI).STATUS & pac::STTS_READY_MASK) == 0 {
+            // Wait until QSPI is ready - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_READY_MASK) == 0 {
                 core::hint::spin_loop();
             }
 
@@ -425,6 +446,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 pac::FRMS_FBYTE_MASK
             };
             (*pac::QSPI).FRAMES = frame_ctrl;
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
             let word_count = if buffer_aligned { total_bytes / 4 } else { 0 };
             if buffer_aligned {
@@ -435,17 +457,22 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 let words_32 = words.as_ptr() as *mut u32;
 
                 for i in 0..word_count {
-                    // Wait until transmit FIFO is not full
-                    while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                    // Wait until transmit FIFO is not full - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    (*pac::QSPI).TXDATAX4 = *words_32.add(i);
+                    // TX_DATA write needs to be volatile
+                    core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX4, *words_32.add(i));
 
-                    // Wait until receive FIFO is not empty
-                    while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                    // Wait until receive FIFO is not empty - needs volatile read
+                    while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RFEMPTY_MASK)
+                        != 0
+                    {
                         core::hint::spin_loop();
                     }
-                    *words_32.add(i) = (*pac::QSPI).RXDATAX4;
+                    *words_32.add(i) = core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 }
 
                 // Disable 32-bit transfer mode
@@ -460,29 +487,32 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             // Transfer remaining bytes
             let remaining_start = word_count * 4;
             for i in remaining_start..total_bytes {
-                // Wait until transmit FIFO is not full
-                while ((*pac::QSPI).STATUS & pac::STTS_TFFULL_MASK) != 0 {
+                // Wait until transmit FIFO is not full - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_TFFULL_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
-                (*pac::QSPI).TXDATAX1 = words[i];
+                // TX_DATA write needs to be volatile
+                core::ptr::write_volatile(&mut (*pac::QSPI).TXDATAX1, words[i]);
 
-                // Wait until receive FIFO is not empty
-                while ((*pac::QSPI).STATUS & pac::STTS_RFEMPTY_MASK) != 0 {
+                // Wait until receive FIFO is not empty - needs volatile read
+                while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RFEMPTY_MASK) != 0
+                {
                     core::hint::spin_loop();
                 }
-                words[i] = (*pac::QSPI).RXDATAX1;
+                words[i] = core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1);
             }
-            // Make sure the read is complete (but we shouldn't get here)
-            while ((*pac::QSPI).STATUS & pac::STTS_RDONE_MASK) == 0 {
+            // Make sure the read is complete (but we shouldn't get here) - needs volatile read
+            while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RDONE_MASK) == 0 {
                 log::warn!("Warning: read not complete");
-                if ((*pac::QSPI).STATUS & pac::STTS_FLAGSX4_MASK) != 0 {
-                    (*pac::QSPI).RXDATAX4;
+                if (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_FLAGSX4_MASK) != 0 {
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 } else {
-                    (*pac::QSPI).RXDATAX1;
+                    core::ptr::read_volatile(&(*pac::QSPI).RXDATAX1);
                 }
             }
         }
-        log::debug!("QSPI transfer_in_place received {:x?}", words);
+        log::trace!("QSPI transfer_in_place received {:x?}", words);
         Ok(())
     }
 
