@@ -38,6 +38,9 @@ A peripheral access crate for the PolarFire SoC. Largely bindgen-generated from 
 `hss-tty-flasher` | [![Crates.io](https://img.shields.io/crates/v/hss-tty-flasher)](https://crates.io/crates/hss-tty-flasher)<br />
 A TTY interface that allows you to flash ELF files to PolarFire SoC devices using the HSS bootloader.
 
+`dpi-display`<br />
+An FPGA-driven DPI display driver, including gateware.
+
 
 **Internal crates**:
 
