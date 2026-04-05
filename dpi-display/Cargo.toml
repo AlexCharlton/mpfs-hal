@@ -17,7 +17,7 @@ embedded-graphics = { version = "0.8", optional = true }
 embedded-temu = { git = "https://github.com/AlexCharlton/embedded-temu", branch = "main", optional = true }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
-embassy-time = { git = "https://github.com/AlexCharlton/embassy", branch = "usbh-uac" }
+embassy-time = { git = "https://github.com/AlexCharlton/embassy", branch = "main" }
 log = { version = "0.4" }
 paste = "1.0"
 
