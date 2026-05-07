@@ -1,6 +1,6 @@
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointType, Speed,
-    host::{ChannelError, HostError},
+    host::{HostError, PipeError},
 };
 use mpfs_hal::pac;
 
@@ -18,7 +18,7 @@ pub enum EndpointState {
     TxLast,
     TxReadyForNext,
     Setup,
-    RxComplete(Result<usize, ChannelError>),
+    RxComplete(Result<usize, PipeError>),
     TxComplete,
     Disabled,
 }
@@ -129,7 +129,7 @@ pub fn alloc_fifo_addr(
     );
 
     if max_packet_size > MAX_FIFO_SIZE {
-        return Err(HostError::OutOfChannels);
+        return Err(HostError::OutOfPipes);
     }
     // FIFO size must be a power of 2
     let mut fifo_size = max_packet_size.next_power_of_two();
@@ -150,7 +150,7 @@ pub fn alloc_fifo_addr(
                 i,
                 max_packet_size
             );
-            return Err(HostError::OutOfChannels);
+            return Err(HostError::OutOfPipes);
         }
         endpoints[i] = EndpointDetails {
             used: true,
@@ -159,7 +159,7 @@ pub fn alloc_fifo_addr(
         };
         Ok(i)
     } else {
-        Err(HostError::OutOfChannels)
+        Err(HostError::OutOfPipes)
     }
 }
 

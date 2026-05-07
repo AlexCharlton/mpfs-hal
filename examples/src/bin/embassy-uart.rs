@@ -5,8 +5,8 @@
 extern crate mpfs_hal;
 
 use embedded_io_async::Read;
-use mpfs_hal::uart::*;
 use mpfs_hal::Peripheral;
+use mpfs_hal::uart::*;
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {

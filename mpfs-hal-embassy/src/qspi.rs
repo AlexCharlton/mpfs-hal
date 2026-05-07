@@ -1,7 +1,7 @@
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use static_cell::StaticCell;
 
-use mpfs_hal::{qspi, Peripheral};
+use mpfs_hal::{Peripheral, qspi};
 
 static QSPI_BUS: StaticCell<Mutex<CriticalSectionRawMutex, qspi::Qspi>> = StaticCell::new();
 

@@ -5,7 +5,7 @@
 extern crate mpfs_hal;
 
 use embassy_time::{Duration, Instant, Timer};
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 
 // Not only does this test to see how accurate our timers are, but if there are bugs in the timer driver or executor, this is intended to expose them, by triggering many alarms that are set to go off close to the period where we go into WFI. If bugs exist, we will probably never wake up.
 

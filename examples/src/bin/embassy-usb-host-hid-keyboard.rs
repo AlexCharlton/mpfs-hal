@@ -3,49 +3,46 @@
 
 // https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/usb_host_keyboard.rs used as reference
 
-use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::kbd::KbdHandler;
-use embassy_usb_host::handler::{EnumerationInfo, UsbHostHandler};
+use embassy_usb_host::{BusRoute, BusState, bus};
 use mpfs_hal::Peripheral;
 use mpfs_hal_embassy::usb::host;
+use static_cell::StaticCell;
+
+static USB_BUS_STATE: StaticCell<BusState> = StaticCell::new();
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
 
+    let bus_state = USB_BUS_STATE.init(BusState::new());
     let driver = host::UsbHostDriver::take().unwrap();
     driver.start();
-    let mut usbhost = UsbHost::new(driver);
+    let (mut bus_ctl, bus) = bus(driver, bus_state);
 
     loop {
         log::debug!("Detecting device");
-        // Wait for root-port to detect device
-        let speed = usbhost.wait_for_connection().await;
+        let speed = bus_ctl.wait_for_connection().await;
 
         let mut config_buf = [0u8; 256];
-        let result = usbhost.enumerate(speed, &mut config_buf).await;
-
-        let (dev_desc, addr, _config_len) = match result {
+        let (enum_info, _config_len) = match bus
+            .enumerate(BusRoute::Direct(speed), &mut config_buf)
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 log::error!("Enumeration failed: {:?}", e);
                 continue;
             }
         };
-        let enum_info = EnumerationInfo {
-            device_address: addr,
-            ls_over_fs: false,
-            speed: speed,
-            device_desc: dev_desc,
-        };
 
         log::info!(
             "Enumerated: VID={:04x} PID={:04x} addr={}",
-            dev_desc.vendor_id,
-            dev_desc.product_id,
-            addr
+            enum_info.device_desc.vendor_id,
+            enum_info.device_desc.product_id,
+            enum_info.device_address,
         );
-        let mut kbd = KbdHandler::try_register(usbhost.driver(), &enum_info)
+        let mut kbd = KbdHandler::try_register(&bus, &enum_info)
             .await
             .expect("Couldn't register keyboard");
 

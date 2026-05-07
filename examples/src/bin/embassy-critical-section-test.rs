@@ -64,11 +64,9 @@ async fn hart4_main(spawner: embassy_executor::Spawner) {
 
 #[embassy_executor::task(pool_size = 4)]
 async fn counter_task(counter: &'static Mutex<CriticalSectionRawMutex, RefCell<usize>>) {
-    unsafe {
-        for _ in 0..1000000 {
-            counter.lock_mut(|c| *c.borrow_mut() += 1);
-            Timer::after_nanos(10).await;
-        }
+    for _ in 0..1000000 {
+        counter.lock(|c| *c.borrow_mut() += 1);
+        Timer::after_nanos(10).await;
     }
     println!(
         "Counter final from hart {}: {}",

@@ -6,7 +6,8 @@ use core::task::{Poll, Waker};
 use embassy_futures::select::select;
 use embassy_time::{Duration, Timer, with_timeout};
 use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, channel,
+    DeviceEvent, HostError, PipeError, SplitInfo, TimeoutConfig, UsbHostAllocator,
+    UsbHostController, UsbPipe, pipe,
 };
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
@@ -27,7 +28,7 @@ static mut CONNECTED: DeviceEvent = DeviceEvent::Disconnected;
 static mut DEVICE_EVENT: Option<DeviceEvent> = None;
 static mut DEVICE_EVENT_WAKER: Option<Waker> = None;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct UsbHostDriver {
     connected: Rc<RefCell<bool>>,
     in_channels_allocated: Rc<RefCell<[EndpointDetails; NUM_ENDPOINTS]>>,
@@ -94,10 +95,167 @@ impl UsbHostDriver {
     }
 }
 
-impl embassy_usb_driver::host::UsbHostDriver for UsbHostDriver {
-    type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D>;
+impl UsbHostAllocator<'static> for UsbHostDriver {
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<T, D>;
 
-    async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, HostError> {
+        assert!(
+            split.is_none(),
+            "Split transactions / TT routing are not supported by this host driver"
+        );
+        log::debug!(
+            "USBH alloc_pipe {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
+            addr,
+            endpoint,
+            T::ep_type() == EndpointType::Control,
+            D::is_in(),
+            D::is_out()
+        );
+        let index = endpoint.addr.index();
+
+        let (ep_in, ep_out) = if T::ep_type() == EndpointType::Control {
+            let mut ep = default_ep();
+            ep.num = 0;
+            ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
+            ep.fifo_size = 64;
+            ep.max_pkt_size = endpoint.max_packet_size;
+            ep.interval = 32768; // Max value
+            (
+                Some(EndpointController {
+                    ep,
+                    ..EndpointController::default()
+                }),
+                Some(EndpointController {
+                    ep,
+                    ..EndpointController::default()
+                }),
+            )
+        } else {
+            let ep_in = if D::is_in() {
+                unsafe {
+                    if EP_IN_CONTROLLER[index].is_some() {
+                        return Err(HostError::OutOfPipes);
+                    }
+                }
+                let i = alloc_fifo_addr(
+                    endpoint.max_packet_size,
+                    &mut *self.in_channels_allocated.borrow_mut(),
+                    None,
+                )?;
+
+                Some(configure_endpoint_controller(
+                    Direction::In,
+                    index,
+                    endpoint.ep_type,
+                    endpoint.max_packet_size,
+                    self.in_channels_allocated.borrow()[i],
+                    speed(),
+                ))
+            } else {
+                None
+            };
+
+            let ep_out = if D::is_out() {
+                unsafe {
+                    if EP_OUT_CONTROLLER[index].is_some() {
+                        return Err(HostError::OutOfPipes);
+                    }
+                }
+                let i = alloc_fifo_addr(
+                    endpoint.max_packet_size,
+                    &mut *self.out_channels_allocated.borrow_mut(),
+                    None,
+                )?;
+
+                Some(configure_endpoint_controller(
+                    Direction::Out,
+                    index,
+                    endpoint.ep_type,
+                    endpoint.max_packet_size,
+                    self.out_channels_allocated.borrow()[i],
+                    speed(),
+                ))
+            } else {
+                None
+            };
+            (ep_in, ep_out)
+        };
+        unsafe {
+            // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
+            if D::is_in() {
+                EP_IN_CONTROLLER[index] = ep_in;
+            }
+            if D::is_out() {
+                EP_OUT_CONTROLLER[index] = ep_out;
+            }
+
+            if T::ep_type() == EndpointType::Control {
+                let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
+                pac::MSS_USBH_CIF_cep_configure(&mut ep.ep);
+
+                // Wait before setting speed, or else the device gets unhappy
+                for _ in 0..200000 {
+                    core::hint::spin_loop();
+                }
+                (*pac::USB).ENDPOINT[0].TX_TYPE =
+                    (mss_speed() << pac::TYPE0_HOST_MP_TARGET_SPEED_SHIFT) as u8;
+                (*pac::USB).TAR[0].TX_FUNC_ADDR = (addr & 0x7F) as u8;
+            } else {
+                if D::is_in() {
+                    pac::MSS_USBH_CIF_rx_ep_mp_configure(
+                        index as u8,
+                        index as u8,
+                        addr,
+                        0,
+                        0,
+                        0,
+                        mss_speed(),
+                        mss_interval(speed(), endpoint.ep_type),
+                        mss_transfer_type(endpoint.ep_type),
+                    );
+
+                    let ep = EP_IN_CONTROLLER[index].as_mut().unwrap();
+                    pac::MSS_USBH_CIF_rx_ep_configure(&mut ep.ep);
+                }
+                if D::is_out() {
+                    pac::MSS_USBH_CIF_tx_ep_mp_configure(
+                        index as u8,
+                        index as u8,
+                        addr,
+                        0,
+                        0,
+                        0,
+                        mss_speed(),
+                        mss_interval(speed(), endpoint.ep_type),
+                        mss_transfer_type(endpoint.ep_type),
+                    );
+
+                    let ep = EP_OUT_CONTROLLER[index].as_mut().unwrap();
+                    pac::MSS_USBH_CIF_tx_ep_configure(&mut ep.ep);
+                }
+            }
+        }
+
+        Ok(Channel {
+            index,
+            phantom: core::marker::PhantomData,
+        })
+    }
+}
+
+impl UsbHostController<'static> for UsbHostDriver {
+    type Allocator = Self;
+
+    fn allocator(&self) -> Self::Allocator {
+        self.clone()
+    }
+
+    async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
         loop {
             #[allow(static_mut_refs)]
             unsafe {
@@ -166,7 +324,7 @@ impl embassy_usb_driver::host::UsbHostDriver for UsbHostDriver {
         }
     }
 
-    async fn bus_reset(&self) {
+    async fn bus_reset(&mut self) {
         log::trace!("USBH bus_reset");
         unsafe {
             // MSS_USBH_CIF_assert_bus_reset
@@ -187,132 +345,27 @@ impl embassy_usb_driver::host::UsbHostDriver for UsbHostDriver {
             }
         }
     }
-
-    fn alloc_channel<T: channel::Type, D: channel::Direction>(
-        &self,
-        addr: u8,
-        endpoint: &EndpointInfo,
-        pre: bool,
-    ) -> Result<Self::Channel<T, D>, HostError> {
-        assert!(!pre, "Low speed devices aren't supported");
-        log::debug!(
-            "USBH alloc_channel {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
-            addr,
-            endpoint,
-            T::ep_type() == EndpointType::Control,
-            D::is_in(),
-            D::is_out()
-        );
-        let index = endpoint.addr.index();
-
-        let (ep_in, ep_out) = if T::ep_type() == EndpointType::Control {
-            let mut ep = default_ep();
-            ep.num = 0;
-            ep.xfr_type = pac::mss_usb_xfr_type_t_MSS_USB_XFR_CONTROL;
-            ep.fifo_size = 64;
-            ep.max_pkt_size = endpoint.max_packet_size;
-            ep.interval = 32768; // Max value
-            (
-                Some(EndpointController {
-                    ep,
-                    ..EndpointController::default()
-                }),
-                Some(EndpointController {
-                    ep,
-                    ..EndpointController::default()
-                }),
-            )
-        } else {
-            let ep_in = if D::is_in() {
-                unsafe {
-                    if EP_IN_CONTROLLER[index].is_some() {
-                        return Err(HostError::OutOfChannels);
-                    }
-                }
-                let i = alloc_fifo_addr(
-                    endpoint.max_packet_size,
-                    &mut *self.in_channels_allocated.borrow_mut(),
-                    None,
-                )?;
-
-                Some(configure_endpoint_controller(
-                    Direction::In,
-                    index,
-                    endpoint.ep_type,
-                    endpoint.max_packet_size,
-                    self.in_channels_allocated.borrow()[i],
-                    speed(),
-                ))
-            } else {
-                None
-            };
-
-            let ep_out = if D::is_out() {
-                unsafe {
-                    if EP_OUT_CONTROLLER[index].is_some() {
-                        return Err(HostError::OutOfChannels);
-                    }
-                }
-                let i = alloc_fifo_addr(
-                    endpoint.max_packet_size,
-                    &mut *self.out_channels_allocated.borrow_mut(),
-                    None,
-                )?;
-
-                Some(configure_endpoint_controller(
-                    Direction::Out,
-                    index,
-                    endpoint.ep_type,
-                    endpoint.max_packet_size,
-                    self.out_channels_allocated.borrow()[i],
-                    speed(),
-                ))
-            } else {
-                None
-            };
-            (ep_in, ep_out)
-        };
-        unsafe {
-            // We know nothing else will be using this endpoint yet (it hasn't been allocated), so we can safely do this without a lock
-            if D::is_in() {
-                EP_IN_CONTROLLER[index] = ep_in;
-            }
-            if D::is_out() {
-                EP_OUT_CONTROLLER[index] = ep_out;
-            }
-        }
-        let mut channel = Channel {
-            index,
-            phantom: core::marker::PhantomData,
-        };
-        channel.retarget_channel(addr, endpoint, pre)?;
-        Ok(channel)
-    }
 }
 
 //------------------------------------------------------
 
-pub struct Channel<T: channel::Type, D: channel::Direction> {
+pub struct Channel<T: pipe::Type, D: pipe::Direction> {
     phantom: core::marker::PhantomData<(T, D)>,
     index: usize,
 }
 
-impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D> {
-    async fn control_in(
-        &mut self,
-        setup: &SetupPacket,
-        buf: &mut [u8],
-    ) -> Result<usize, ChannelError>
+impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsIn,
+        T: pipe::IsControl,
+        D: pipe::IsIn,
     {
         const MAX_RETRIES: usize = 3;
 
         log::trace!(
-            "USBH control_in: setup={:?}; setup_bytes={:x?}",
+            "USBH control_in: setup={:x?}; setup_bytes={:x?}",
             setup,
-            setup.as_bytes()
+            setup
         );
 
         let mut aligned_buffer = buf.as_ptr();
@@ -335,9 +388,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
             });
         }
         let mut setup_buffer = Aligned::<A4, _>([0; 8]);
-        setup_buffer
-            .as_mut_slice()
-            .copy_from_slice(setup.as_bytes());
+        setup_buffer.as_mut_slice().copy_from_slice(setup);
         let mut retries = 0;
         let read_size = loop {
             if let Ok(res) = with_timeout(Duration::from_millis(100), async {
@@ -376,7 +427,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                 if retries < MAX_RETRIES {
                     log::warn!("control_in: timeout, retrying");
                 } else {
-                    return Err(ChannelError::Timeout);
+                    return Err(PipeError::Timeout);
                 }
             }
         }?;
@@ -396,10 +447,10 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         Ok(read_size)
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsOut,
+        T: pipe::IsControl,
+        D: pipe::IsOut,
     {
         log::trace!("control_out: setup={:?}, buf={:x?}", setup, buf);
         unsafe {
@@ -420,9 +471,7 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
                 EP_OUT_CONTROLLER[0].as_mut().unwrap().state = EndpointState::Setup;
             });
             let mut setup_buffer = Aligned::<A4, _>([0; 8]);
-            setup_buffer
-                .as_mut_slice()
-                .copy_from_slice(setup.as_bytes());
+            setup_buffer.as_mut_slice().copy_from_slice(setup);
 
             pac::MSS_USBH_CIF_load_tx_fifo(0, setup_buffer.as_ptr() as *mut core::ffi::c_void, 8);
             // MSS_USBH_CIF_cep_set_setuppktrdy
@@ -446,77 +495,24 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         Ok(())
     }
 
-    fn retarget_channel(
-        &mut self,
-        addr: u8,
-        endpoint: &EndpointInfo,
-        pre: bool,
-    ) -> Result<(), HostError> {
-        assert!(!pre, "Low speed devices aren't supported");
-        log::trace!("USBH retarget_channel {} {:?}", addr, endpoint);
-        unsafe {
-            if T::ep_type() == EndpointType::Control {
-                let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
-                pac::MSS_USBH_CIF_cep_configure(&mut ep.ep);
-
-                // Wait before setting speed, or else the device gets unhappy
-                for _ in 0..200000 {
-                    core::hint::spin_loop();
-                }
-                // pac::MSS_USBH_CIF_cep_set_type0_reg
-                (*pac::USB).ENDPOINT[0].TX_TYPE =
-                    (mss_speed() << pac::TYPE0_HOST_MP_TARGET_SPEED_SHIFT) as u8;
-                // pac::MSS_USBH_CIF_tx_ep_set_target_func_addr(0, endpoint.addr);
-                (*pac::USB).TAR[0].TX_FUNC_ADDR = (addr & 0x7F) as u8;
-            } else {
-                let index = endpoint.addr.index();
-                if D::is_in() {
-                    pac::MSS_USBH_CIF_rx_ep_mp_configure(
-                        index as u8,
-                        index as u8,
-                        addr,
-                        // Needed for hub?
-                        0,
-                        0,
-                        0,
-                        mss_speed(),
-                        mss_interval(speed(), endpoint.ep_type),
-                        mss_transfer_type(endpoint.ep_type),
-                    );
-
-                    let ep = EP_IN_CONTROLLER[index].as_mut().unwrap();
-                    pac::MSS_USBH_CIF_rx_ep_configure(&mut ep.ep);
-                }
-                if D::is_out() {
-                    pac::MSS_USBH_CIF_tx_ep_mp_configure(
-                        index as u8,
-                        index as u8,
-                        addr,
-                        // Needed for hub?
-                        0,
-                        0,
-                        0,
-                        mss_speed(),
-                        mss_interval(speed(), endpoint.ep_type),
-                        mss_transfer_type(endpoint.ep_type),
-                    );
-
-                    let ep = EP_OUT_CONTROLLER[index].as_mut().unwrap();
-                    pac::MSS_USBH_CIF_tx_ep_configure(&mut ep.ep);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Configure the timeouts of this channel
-    fn set_timeout(&mut self, _timeout: TimeoutConfig) {
+    /// Configure the timeouts of this control pipe.
+    fn set_timeout(&mut self, _timeout: TimeoutConfig)
+    where
+        T: pipe::IsControl,
+    {
         log::warn!("set_timeout: not implemented");
     }
 
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
+    fn reset_data_toggle(&mut self)
     where
-        D: channel::IsIn,
+        T: pipe::IsBulkOrInterrupt,
+    {
+        log::warn!("reset_data_toggle: not implemented for MSS USB host");
+    }
+
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
+    where
+        D: pipe::IsIn,
     {
         log::trace!("USBH request_in");
 
@@ -592,9 +588,9 @@ impl<T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<T, D>
         &mut self,
         buf: &[u8],
         _ensure_transaction_end: bool,
-    ) -> Result<(), ChannelError>
+    ) -> Result<(), PipeError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         // Based off of MSS_USBH_write_out_pipe
         log::trace!("USBH request_out");
@@ -653,6 +649,7 @@ fn speed() -> Speed {
         match CONNECTED {
             DeviceEvent::Connected(speed) => speed,
             DeviceEvent::Disconnected => Speed::Low,
+            _ => Speed::Low,
         }
     }
 }
@@ -719,7 +716,7 @@ extern "C" fn usbh_cep(status: u8) {
                     ep_state_to_string(status)
                 );
                 if in_ep.state == EndpointState::Setup || in_ep.state == EndpointState::Rx {
-                    in_ep.state = EndpointState::RxComplete(Err(ChannelError::BadResponse));
+                    in_ep.state = EndpointState::RxComplete(Err(PipeError::BadResponse));
                     if let Some(waker) = in_ep.waker.as_mut() {
                         waker.wake_by_ref();
                     }
@@ -804,8 +801,8 @@ extern "C" fn usbh_rx(ep_num: u8, status: u8) {
         critical_section::with(|_| unsafe {
             let ep = EP_IN_CONTROLLER[ep_num as usize].as_mut().unwrap();
             let err = match status as u32 {
-                pac::RX_EP_STALL_ERROR => ChannelError::Stall,
-                _ => ChannelError::BadResponse,
+                pac::RX_EP_STALL_ERROR => PipeError::Stall,
+                _ => PipeError::BadResponse,
             };
             ep.state = EndpointState::RxComplete(Err(err));
             if let Some(waker) = ep.waker.as_mut() {

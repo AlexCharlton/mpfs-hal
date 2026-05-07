@@ -1,4 +1,4 @@
-use crate::{uart::*, Mutex, Peripheral};
+use crate::{Mutex, Peripheral, uart::*};
 use core::panic::PanicInfo;
 
 use embedded_io::Write;

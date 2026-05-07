@@ -8,15 +8,15 @@ extern crate mpfs_hal;
 
 use alloc::{string::String, vec::Vec};
 use block_device_adapters::{BufStream, BufStreamError, StreamSlice};
-use embassy_embedded_hal::{shared_bus::asynch::spi::SpiDeviceWithConfig, SetConfig};
+use embassy_embedded_hal::{SetConfig, shared_bus::asynch::spi::SpiDeviceWithConfig};
 use embedded_fatfs::FsOptions;
 use embedded_io_async::Read;
 use mbr_nostd::{MasterBootRecord, PartitionTable};
 use mpfs_hal::{
-    qspi::{SpiConfig, SpiFrequency},
     Peripheral,
+    qspi::{SpiConfig, SpiFrequency},
 };
-use sdspi::{sd_init, SdSpi};
+use sdspi::{SdSpi, sd_init};
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {

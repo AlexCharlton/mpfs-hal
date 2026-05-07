@@ -5,7 +5,9 @@ fn get_board_path() -> &'static str {
     if cfg!(feature = "beaglev-fire") {
         "beaglev-fire"
     } else {
-        panic!("No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)")
+        panic!(
+            "No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)"
+        )
     }
 }
 
@@ -13,7 +15,9 @@ fn get_target_board_define() -> &'static str {
     if cfg!(feature = "beaglev-fire") {
         "TARGET_BEAGLEV_FIRE"
     } else {
-        panic!("No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)")
+        panic!(
+            "No board feature selected. Please enable a board feature (e.g., --features beaglev-fire)"
+        )
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{pac, Mutex};
+use crate::{Mutex, pac};
 use embassy_embedded_hal::SetConfig;
 use embedded_hal::spi::{ErrorType, Operation, Phase, Polarity};
 use paste::paste;

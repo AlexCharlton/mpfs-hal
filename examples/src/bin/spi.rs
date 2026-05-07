@@ -4,10 +4,10 @@
 #[macro_use]
 extern crate mpfs_hal;
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use mpfs_hal::{
-    spi::{self, Spi, Spi0Slave0, SpiConfig},
     Peripheral,
+    spi::{self, Spi, Spi0Slave0, SpiConfig},
 };
 
 use embedded_hal::spi::{Phase, Polarity, SpiDevice};

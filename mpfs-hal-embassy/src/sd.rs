@@ -3,7 +3,7 @@ pub use beaglev_fire::*;
 #[cfg(feature = "beaglev-fire")]
 mod beaglev_fire {
     use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-    use mpfs_hal::{gpio, qspi, Peripheral};
+    use mpfs_hal::{Peripheral, gpio, qspi};
 
     pub use gpio::{SdChipSelect, SdDetect};
 

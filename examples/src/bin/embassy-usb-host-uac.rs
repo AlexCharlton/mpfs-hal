@@ -1,43 +1,42 @@
 #![no_std]
 #![no_main]
 
-use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::uac::UacHandler;
-use embassy_usb_host::handler::EnumerationInfo;
+use embassy_usb_host::{BusRoute, BusState, bus};
 use mpfs_hal::Peripheral;
 use mpfs_hal_embassy::usb::host;
+use static_cell::StaticCell;
+
+static USB_BUS_STATE: StaticCell<BusState> = StaticCell::new();
 
 #[mpfs_hal_embassy::embassy_hart1_main]
 async fn hart1_main(_spawner: embassy_executor::Spawner) {
     log::info!("Hello world!");
 
+    let bus_state = USB_BUS_STATE.init(BusState::new());
     let driver = host::UsbHostDriver::take().unwrap();
     driver.start();
-    let mut usbhost = UsbHost::new(driver);
+    let (mut bus_ctl, bus) = bus(driver, bus_state);
 
     loop {
         log::debug!("Detecting device");
-        // Wait for root-port to detect device
-        let speed = usbhost.wait_for_connection().await;
+        let speed = bus_ctl.wait_for_connection().await;
 
         log::info!("Found device with speed = {:?}", speed);
 
         let mut config_buf = [0u8; 512];
-        let (dev_desc, addr, _config_len) = match usbhost.enumerate(speed, &mut config_buf).await {
+        let (enum_info, _config_len) = match bus
+            .enumerate(BusRoute::Direct(speed), &mut config_buf)
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 log::error!("Enumeration failed: {:?}", e);
                 continue;
             }
         };
-        let enum_info = EnumerationInfo {
-            device_address: addr,
-            ls_over_fs: false,
-            speed: speed,
-            device_desc: dev_desc,
-        };
 
-        if let Ok(mut uac) = UacHandler::try_register(usbhost.driver(), enum_info).await {
+        if let Ok(mut uac) = UacHandler::try_register(&bus, enum_info).await {
             log::info!("UAC registered");
             let sampling_freq = uac
                 .get_sampling_freq(uac.input_terminal().clock_source_id())
@@ -53,7 +52,7 @@ async fn hart1_main(_spawner: embassy_executor::Spawner) {
             log::info!("[UAC] Terminal Name: {:?}", terminal_name);
 
             let mut out = uac.output().await.unwrap();
-            out.output_stream(|| usbhost.driver().is_connected(), generate_sine_wave)
+            out.output_stream(|| bus_ctl.controller().is_connected(), generate_sine_wave)
                 .await
                 .unwrap();
         } else {
