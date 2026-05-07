@@ -14,9 +14,9 @@ This repository contains a hardware abstraction layer for the Microchip PolarFir
 - UART ([embedded-io](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) `Write` and [embedded-io-async](https://docs.rs/embedded-io-async/latest/embedded_io_async/trait.Read.html) `Read`)
 - UART-based logger (`log` and `log-colors` features - log timestamps are in microseconds) and print macros (`print` feature)
 - QSPI ([embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/spi/trait.SpiBus.html) and [embedded-hal-async](https://docs.rs/embedded-hal-async/latest/embedded_hal_async/spi/trait.SpiBus.html) `SpiBus`)
-- Ethernet ([embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver`)
-- USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver`)
-- USB host support (using the yet-to-be-released [UsbHostDriver](https://github.com/embassy-rs/embassy/tree/main/embassy-usb-host))
+- Ethernet ([embassy-net-driver](https://docs.embassy.dev/embassy-net-driver/git/default/index.html) `Driver` for use with [embassy-net](https://docs.embassy.dev/embassy-net/git/default/index.html))
+- USB device ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/index.html) `Driver` for use with [embassy-usb](https://docs.embassy.dev/embassy-usb/git/default/index.html))
+- USB host support ([embassy-usb-driver](https://docs.embassy.dev/embassy-usb-driver/git/default/host/index.html) `UsbHostController` for use with [embassy-usb-host](https://docs.embassy.dev/embassy-usb-host/git/default/index.html))
 
 > [!NOTE]
 > While the `mpfs-hal` crate implements some Embassy traits, it comes with no requirement to use Embassy. These traits were used in the absence of other async traits available in the ecosystem, and they come with the benefit of having USB/Ethernet stacks already implemented with [embassy-usb](https://docs.embassy.dev/embassy-usb/git/default/index.html) and [embassy-net](https://docs.embassy.dev/embassy-net/git/default/index.html) (both of which also do not need to be used with the Embassy executor, if so desired).

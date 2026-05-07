@@ -11,10 +11,10 @@ members = [
 exclude = ["hss-tty-flasher"]
 
 [workspace.dependencies]
-mpfs-pac = { path = "./mpfs-pac", version = "0.3.0" }
-mpfs-hal = { path = "./mpfs-hal", version = "0.3.0", default-features = false }
-mpfs-hal-embassy = { path = "./mpfs-hal-embassy", version = "0.1.0" }
-mpfs-hal-procmacros = { path = "./mpfs-hal-procmacros", version = "0.2.0" }
+mpfs-pac = { path = "./mpfs-pac", version = "0.4.0" }
+mpfs-hal = { path = "./mpfs-hal", version = "0.4.0", default-features = false }
+mpfs-hal-embassy = { path = "./mpfs-hal-embassy", version = "0.2.0" }
+mpfs-hal-procmacros = { path = "./mpfs-hal-procmacros", version = "0.3.0" }
 
 embassy-embedded-hal = { version = "0.6" }
 # embassy-embedded-hal = { path = "../external/embassy/embassy-embedded-hal" }
