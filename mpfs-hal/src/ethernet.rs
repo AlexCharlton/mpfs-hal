@@ -251,7 +251,7 @@ pub struct EthernetDevice<M: MacPeripheral> {
 
 impl<M: MacPeripheral> EthernetDevice<M> {
     fn new(mac: M) -> Self {
-        log::debug!(
+        debug!(
             "Creating EthernetDevice with rx ring size {}",
             pac::MSS_MAC_RX_RING_SIZE
         );
@@ -316,8 +316,8 @@ impl<M: MacPeripheral> EthernetDevice<M> {
 
             pac::MSS_MAC_tx_enable(self.mac.address());
 
-            log::trace!("MAC config: {:#?}", config);
-            log::debug!("MAC initialized");
+            trace!("MAC config: {:#?}", config);
+            debug!("MAC initialized");
         }
     }
 
@@ -343,7 +343,7 @@ impl<M: MacPeripheral> EthernetDevice<M> {
 
     #[doc(hidden)]
     pub fn debug_mac_queue(&self) {
-        log::debug!("MAC queue 0: {:#?}", unsafe {
+        debug!("MAC queue 0: {:#?}", unsafe {
             (*self.mac.address()).queue[0]
         });
     }
@@ -384,7 +384,7 @@ impl<M: MacPeripheral> EthernetDevice<M> {
             // Clear the lock if we get stuck here, since it's possible a bad packet will never get its callback called.
             if lock_count > 1000 {
                 self.tx_buffer_in_use = false;
-                log::warn!("Failed to get lock on ethernet TX buffer, resetting");
+                warn!("Failed to get lock on ethernet TX buffer, resetting");
             }
         }
         if len > self.mac.tx_buffer().0.len() {
@@ -411,7 +411,7 @@ impl<M: MacPeripheral> EthernetDevice<M> {
                 self as *const _ as *mut core::ffi::c_void,
             );
             if tx_status != 1 {
-                log::error!("Failed to send packet");
+                error!("Failed to send packet");
             }
         }
     }
@@ -483,7 +483,7 @@ impl<M: MacPeripheral> Driver for EthernetDevice<M> {
                 ))
             } else {
                 if self.split {
-                    log::warn!("RX split, not receiving");
+                    warn!("RX split, not receiving");
                 }
                 self.rx_waker = Some(cx.waker().clone());
                 None
@@ -495,7 +495,7 @@ impl<M: MacPeripheral> Driver for EthernetDevice<M> {
         // We can actually create as many TxTokens as we want: What matters is that we don't consume
         // more than one at a time. Consume will take the lock on ethernet.
         if self.split {
-            log::warn!("TX split, not transmitting");
+            warn!("TX split, not transmitting");
             None
         } else {
             Some(TxToken {
@@ -555,7 +555,7 @@ impl<'a, M: MacPeripheral> embassy_net_driver::RxToken for RxToken<'a, M> {
         critical_section::with(|_| {
             ethernet.rx_tokens_issued -= 1;
         });
-        log::trace!("Consumed RX token");
+        trace!("Consumed RX token");
         ret
     }
 }
@@ -610,7 +610,7 @@ extern "C" fn packet_tx_complete_handler<M: MacPeripheral>(
     _desc: *mut pac::mss_mac_tx_desc,
     user_data: *mut core::ffi::c_void,
 ) {
-    log::trace!("MAC packet TX callback");
+    trace!("MAC packet TX callback");
     unsafe {
         let ethernet = (user_data as *mut EthernetDevice<M>).as_mut().unwrap();
         ethernet.tx_buffer_in_use = false;
@@ -625,7 +625,7 @@ extern "C" fn mac_rx_callback<M: MacPeripheral>(
     _rx_desc: *mut pac::mss_mac_rx_desc,
     user_data: *mut core::ffi::c_void,
 ) {
-    log::trace!("MAC packet RX callback of size: {}", rx_size);
+    trace!("MAC packet RX callback of size: {}", rx_size);
     unsafe {
         let ethernet = (user_data as *mut EthernetDevice<M>).as_mut().unwrap();
         let buffer_number = (rx_buf as usize - (*ethernet).mac.rx_buffer(0).0.as_ptr() as usize)
@@ -639,7 +639,7 @@ extern "C" fn mac_rx_callback<M: MacPeripheral>(
                 .push((buffer_number, rx_size as usize))
         });
         if !succeeded {
-            log::warn!("Failed to push to pending rx");
+            warn!("Failed to push to pending rx");
             pac::MSS_MAC_receive_pkt(ethernet.mac.address(), 0, rx_buf, user_data as *mut _, 1);
         }
     }

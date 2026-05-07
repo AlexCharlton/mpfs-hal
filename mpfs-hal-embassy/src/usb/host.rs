@@ -108,7 +108,7 @@ impl UsbHostAllocator<'static> for UsbHostDriver {
             split.is_none(),
             "Split transactions / TT routing are not supported by this host driver"
         );
-        log::debug!(
+        debug!(
             "USBH alloc_pipe {} {:?}; Control: {:?}; In: {:?}; Out: {:?}",
             addr,
             endpoint,
@@ -282,7 +282,7 @@ impl UsbHostController<'static> for UsbHostDriver {
 
                     let event = select(session_future, event_future).await;
                     if event.is_second() {
-                        log::debug!("USB connected");
+                        debug!("USB connected");
                         Timer::after(Duration::from_millis(100)).await;
                         self.bus_reset().await;
                         let event = DeviceEvent::Connected(
@@ -316,7 +316,7 @@ impl UsbHostController<'static> for UsbHostDriver {
                     })
                     .await;
                     *self.connected.borrow_mut() = false;
-                    log::debug!("USB disconnected");
+                    debug!("USB disconnected");
 
                     return embassy_usb_driver::host::DeviceEvent::Disconnected;
                 }
@@ -325,7 +325,7 @@ impl UsbHostController<'static> for UsbHostDriver {
     }
 
     async fn bus_reset(&mut self) {
-        log::trace!("USBH bus_reset");
+        trace!("USBH bus_reset");
         unsafe {
             // MSS_USBH_CIF_assert_bus_reset
             (*pac::USB).POWER |= pac::POWER_REG_BUS_RESET_SIGNAL_MASK as u8;
@@ -362,7 +362,7 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
     {
         const MAX_RETRIES: usize = 3;
 
-        log::trace!(
+        trace!(
             "USBH control_in: setup={:x?}; setup_bytes={:x?}",
             setup,
             setup
@@ -372,7 +372,7 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
         unsafe {
             if aligned_buffer.align_offset(4) != 0 {
                 let e = EP_IN_CONTROLLER[0].as_mut().unwrap();
-                log::warn!("control_in: data should be 32-bit aligned");
+                warn!("control_in: data should be 32-bit aligned");
                 aligned_buffer = e.buffer_addr()[..buf.len()].as_ptr();
             }
             let ep = EP_IN_CONTROLLER[0].as_mut().unwrap();
@@ -425,7 +425,7 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
             } else {
                 retries += 1;
                 if retries < MAX_RETRIES {
-                    log::warn!("control_in: timeout, retrying");
+                    warn!("control_in: timeout, retrying");
                 } else {
                     return Err(PipeError::Timeout);
                 }
@@ -440,9 +440,9 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
         }
 
         if read_size > 10 {
-            log::trace!("control_in: read={:x?}... length={}", &buf[..10], read_size);
+            trace!("control_in: read={:x?}... length={}", &buf[..10], read_size);
         } else {
-            log::trace!("control_in: read={:x?}", &buf[..read_size]);
+            trace!("control_in: read={:x?}", &buf[..read_size]);
         }
         Ok(read_size)
     }
@@ -452,12 +452,12 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
         T: pipe::IsControl,
         D: pipe::IsOut,
     {
-        log::trace!("control_out: setup={:?}, buf={:x?}", setup, buf);
+        trace!("control_out: setup={:?}, buf={:x?}", setup, buf);
         unsafe {
             let mut aligned_buffer = buf.as_ptr();
             if aligned_buffer.align_offset(4) != 0 && buf.len() > 0 {
                 let e = EP_OUT_CONTROLLER[0].as_mut().unwrap();
-                log::warn!("control_out: data should be 32-bit aligned");
+                warn!("control_out: data should be 32-bit aligned");
                 aligned_buffer = e.buffer_addr()[..buf.len()].as_ptr();
             }
             let ep = EP_OUT_CONTROLLER[0].as_mut().unwrap();
@@ -500,21 +500,21 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
     where
         T: pipe::IsControl,
     {
-        log::warn!("set_timeout: not implemented");
+        warn!("set_timeout: not implemented");
     }
 
     fn reset_data_toggle(&mut self)
     where
         T: pipe::IsBulkOrInterrupt,
     {
-        log::warn!("reset_data_toggle: not implemented for MSS USB host");
+        warn!("reset_data_toggle: not implemented for MSS USB host");
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
         D: pipe::IsIn,
     {
-        log::trace!("USBH request_in");
+        trace!("USBH request_in");
 
         // based off MSS_USBH_read_in_pipe
 
@@ -522,7 +522,7 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
         unsafe {
             let ep = EP_IN_CONTROLLER[self.index].as_mut().unwrap();
             if aligned_buffer.align_offset(4) != 0 {
-                log::warn!("request_in: data should be 32-bit aligned");
+                warn!("request_in: data should be 32-bit aligned");
                 aligned_buffer = ep.buffer_addr()[..buf.len()].as_ptr();
             }
             critical_section::with(|_| {
@@ -579,7 +579,7 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
             }
         }
 
-        log::trace!("USBH request_in: read={:x?}", &buf[..read]);
+        trace!("USBH request_in: read={:x?}", &buf[..read]);
 
         Ok(read)
     }
@@ -593,13 +593,13 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<T, D> {
         D: pipe::IsOut,
     {
         // Based off of MSS_USBH_write_out_pipe
-        log::trace!("USBH request_out");
+        trace!("USBH request_out");
 
         unsafe {
             let mut aligned_buffer = buf.as_ptr();
             let ep = EP_OUT_CONTROLLER[self.index].as_mut().unwrap();
             if aligned_buffer.align_offset(4) != 0 {
-                log::warn!("request_out: data should be 32-bit aligned");
+                warn!("request_out: data should be 32-bit aligned");
                 aligned_buffer = ep.buffer_addr()[..buf.len()].as_ptr();
             }
             critical_section::with(|_| {
@@ -702,7 +702,7 @@ fn ep_state_to_string(state: u8) -> &'static str {
 }
 
 extern "C" fn usbh_cep(status: u8) {
-    log::trace!("usbh_cep: Entering with status={}", status);
+    trace!("usbh_cep: Entering with status={}", status);
 
     unsafe {
         let in_ep = &mut EP_IN_CONTROLLER[0].as_mut().unwrap();
@@ -711,7 +711,7 @@ extern "C" fn usbh_cep(status: u8) {
 
         critical_section::with(|_| {
             if status != pac::mss_usb_ep_state_t_MSS_USB_EP_TXN_SUCCESS as u8 {
-                log::error!(
+                error!(
                     "usbh_cep: non-success status: {}",
                     ep_state_to_string(status)
                 );
@@ -769,7 +769,7 @@ extern "C" fn usbh_cep(status: u8) {
                     waker.wake_by_ref();
                 }
             } else {
-                log::warn!(
+                warn!(
                     "usbh_cep: Unexpected state combination - IN {:?}, OUT {:?}",
                     in_ep.state,
                     out_ep.state
@@ -780,7 +780,7 @@ extern "C" fn usbh_cep(status: u8) {
 }
 
 extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
-    log::trace!("usbh_tx_complete: ep={}, status={}", ep_num, status);
+    trace!("usbh_tx_complete: ep={}, status={}", ep_num, status);
 
     critical_section::with(|_| unsafe {
         let ep = EP_OUT_CONTROLLER[ep_num as usize].as_mut().unwrap();
@@ -792,9 +792,9 @@ extern "C" fn usbh_tx_complete(ep_num: u8, status: u8) {
 }
 
 extern "C" fn usbh_rx(ep_num: u8, status: u8) {
-    log::trace!("usbh_rx: ep={}, status={}", ep_num, status);
+    trace!("usbh_rx: ep={}, status={}", ep_num, status);
     if status != 0 {
-        log::error!(
+        error!(
             "usbh_rx: non-success status: {}",
             ep_state_to_string(status)
         );
@@ -850,7 +850,7 @@ extern "C" fn usbh_dma_handler(
     status: u8,
     dma_addr_val: u32,
 ) {
-    log::trace!(
+    trace!(
         "usbh_dma_handler: ep={}, dir={:?}, status={}, addr=0x{:x}",
         ep_num,
         dma_dir,
@@ -881,7 +881,7 @@ extern "C" fn usbh_connect(
         _ => Speed::Low,
     };
 
-    log::trace!("usbh_connect: speed={:?}, vbus={:?}", speed, vbus_level);
+    trace!("usbh_connect: speed={:?}, vbus={:?}", speed, vbus_level);
 
     #[allow(static_mut_refs)]
     critical_section::with(|_| unsafe {
@@ -893,7 +893,7 @@ extern "C" fn usbh_connect(
 }
 
 extern "C" fn usbh_disconnect() {
-    log::trace!("usbh_disconnect");
+    trace!("usbh_disconnect");
 
     #[allow(static_mut_refs)]
     critical_section::with(|_| unsafe {

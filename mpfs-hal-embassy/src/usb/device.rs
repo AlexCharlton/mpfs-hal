@@ -124,7 +124,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        log::trace!(
+        trace!(
             "UsbDriver::alloc_endpoint_out: {:?}, {:?}",
             endpoint_type,
             max_packet_size
@@ -170,7 +170,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        log::trace!(
+        trace!(
             "UsbDriver::alloc_endpoint_in: {:?}, {:?}",
             endpoint_type,
             max_packet_size
@@ -225,7 +225,7 @@ impl<'a> embassy_usb_driver::Driver<'a> for UsbDriver<'a> {
                 break;
             }
         }
-        log::debug!("USB initialized");
+        debug!("USB initialized");
         (
             UsbBus {
                 phantom: core::marker::PhantomData,
@@ -250,14 +250,14 @@ pub struct EndpointOut<'a> {
 impl<'a> embassy_usb_driver::EndpointOut for EndpointOut<'a> {
     async fn read(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.info.addr.index();
-        log::trace!("USB EndpointOut::read {}", index);
+        trace!("USB EndpointOut::read {}", index);
         self.wait_enabled().await;
         let mut aligned_buffer = data.as_ptr();
 
         unsafe {
             if aligned_buffer.align_offset(4) != 0 {
                 let e = EP_OUT_CONTROLLER[index].as_mut().unwrap();
-                log::warn!("EndpointIn:{} data should be 32-bit aligned", index);
+                warn!("EndpointIn:{} data should be 32-bit aligned", index);
                 aligned_buffer = e.buffer_addr()[..data.len()].as_ptr();
             }
         }
@@ -303,7 +303,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
     }
 
     async fn wait_enabled(&mut self) {
-        log::trace!(
+        trace!(
             "USB EndpointOut::wait_enabled {} WAITING",
             self.info.addr.index()
         );
@@ -319,7 +319,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointOut<'a> {
             })
         })
         .await;
-        log::trace!(
+        trace!(
             "USB EndpointOut::wait_enabled {} OK",
             self.info.addr.index()
         );
@@ -338,7 +338,7 @@ pub struct EndpointIn<'a> {
 impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
     async fn write(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         let index = self.info.addr.index();
-        log::trace!("USB EndpointIn::write {} : {:?}", index, data);
+        trace!("USB EndpointIn::write {} : {:?}", index, data);
         self.wait_enabled().await;
         let mut aligned_buffer = data;
 
@@ -348,7 +348,7 @@ impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
 
             if data.as_ptr().align_offset(4) != 0 {
                 let e = EP_IN_CONTROLLER[index].as_mut().unwrap();
-                log::warn!("EndpointIn:{} data should be 32-bit aligned", index);
+                warn!("EndpointIn:{} data should be 32-bit aligned", index);
                 e.buffer_addr()[..data.len()].copy_from_slice(data);
                 aligned_buffer = &e.buffer_addr()[..data.len()];
             }
@@ -379,7 +379,7 @@ impl<'a> embassy_usb_driver::EndpointIn for EndpointIn<'a> {
             })
         })
         .await;
-        log::trace!("USB EndpointIn::write {} OK", index);
+        trace!("USB EndpointIn::write {} OK", index);
         Ok(())
     }
 }
@@ -390,7 +390,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
     }
 
     async fn wait_enabled(&mut self) {
-        log::trace!(
+        trace!(
             "USB EndpointIn::wait_enabled {} WAITING",
             self.info.addr.index()
         );
@@ -406,7 +406,7 @@ impl<'a> embassy_usb_driver::Endpoint for EndpointIn<'a> {
             })
         })
         .await;
-        log::trace!("USB EndpointIn::wait_enabled {} OK", self.info.addr.index());
+        trace!("USB EndpointIn::wait_enabled {} OK", self.info.addr.index());
     }
 }
 
@@ -444,7 +444,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
     }
 
     async fn setup(&mut self) -> [u8; 8] {
-        log::trace!("USB ControlPipe::setup");
+        trace!("USB ControlPipe::setup");
         loop {
             poll_fn(move |cx| {
                 critical_section::with(|_| unsafe {
@@ -464,10 +464,10 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             // For some reason, sometimes the packet wasn't actually ready.
             // If we loop here and wait for the next interrupt, we seem to get the right packet.
             if setup_packet != [0; 8] {
-                log::trace!("USB ControlPipe::setup packet: {:x?}", setup_packet);
+                trace!("USB ControlPipe::setup packet: {:x?}", setup_packet);
                 return setup_packet;
             } else {
-                log::warn!("Got empty setup packet");
+                warn!("Got empty setup packet");
             }
         }
     }
@@ -505,7 +505,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
     // Device -> Host
     // If a setup packet is received while this is waiting, this must return `EndpointError::Disabled`
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
-        log::trace!(
+        trace!(
             "USB ControlPipe::data_in: {:x?}, {:?}, {:?}",
             data,
             first,
@@ -517,7 +517,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
         #[allow(static_mut_refs)]
         unsafe {
             if data.as_ptr().align_offset(4) != 0 {
-                log::warn!("Control endpoint data should be 32-bit aligned");
+                warn!("Control endpoint data should be 32-bit aligned");
                 let e = EP_IN_CONTROLLER[0].as_mut().unwrap();
                 e.buffer_addr()[..data.len()].copy_from_slice(data);
                 aligned_buffer = &e.buffer_addr()[..data.len()];
@@ -551,7 +551,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
                 } else if *state == EndpointState::TxReadyForNext {
                     Poll::Ready(Ok(()))
                 } else if *state == EndpointState::Setup {
-                    log::warn!(
+                    warn!(
                         "Control endpoint setup packet received while waiting for tx complete"
                     );
                     Poll::Ready(Err(EndpointError::Disabled))
@@ -572,7 +572,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             (*pac::USB).INDEXED_CSR.DEVICE_EP0.CSR0 =
                 (pac::CSR0L_DEV_SERVICED_RX_PKT_RDY_MASK | pac::CSR0L_DEV_DATA_END_MASK) as u16;
         }
-        log::trace!("USB ControlPipe::accept");
+        trace!("USB ControlPipe::accept");
     }
 
     async fn reject(&mut self) {
@@ -580,7 +580,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
             (*pac::USB).INDEXED_CSR.DEVICE_EP0.CSR0 =
                 (pac::CSR0L_DEV_SEND_STALL_MASK | pac::CSR0L_DEV_SERVICED_RX_PKT_RDY_MASK) as u16;
         }
-        log::trace!("USB ControlPipe::reject");
+        trace!("USB ControlPipe::reject");
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
@@ -594,7 +594,7 @@ impl<'a> embassy_usb_driver::ControlPipe for ControlPipe<'a> {
         unsafe {
             ((*pac::USB).FADDR) = addr;
         }
-        log::trace!("USB ControlPipe::accept_set_address: {}", addr);
+        trace!("USB ControlPipe::accept_set_address: {}", addr);
     }
 }
 
@@ -671,7 +671,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
             })
         })
         .await;
-        log::debug!("USB poll: {:?}", ret);
+        debug!("USB poll: {:?}", ret);
         if ret == Event::Reset {
             unsafe {
                 pac::MSS_USBD_CIF_cep_configure();
@@ -691,7 +691,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        log::trace!(
+        trace!(
             "USB Bus::endpoint_set_enabled: {:?}{}, {:?}",
             ep_addr.direction(),
             ep_addr.index(),
@@ -712,7 +712,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        log::trace!(
+        trace!(
             "USB Bus::endpoint_set_stalled: {:?}, {:?}",
             ep_addr,
             stalled
@@ -752,7 +752,7 @@ impl<'a> embassy_usb_driver::Bus for UsbBus<'a> {
                     != 0
             }
         };
-        log::trace!("USB Bus::endpoint_is_stalled: {:?}, {:?}", ep_addr, val);
+        trace!("USB Bus::endpoint_is_stalled: {:?}, {:?}", ep_addr, val);
         val
     }
 
@@ -793,7 +793,7 @@ pub static g_mss_usbd_cb: pac::mss_usbd_cb_t = pac::mss_usbd_cb_t {
 
 extern "C" fn usbd_cep_setup(status: u8) {
     unsafe {
-        log::trace!(
+        trace!(
             "usbd_cep_setup: {:?} {:?} {:?}",
             status,
             EP_OUT_CONTROLLER[0].as_mut().unwrap().state,
@@ -861,7 +861,7 @@ extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
     unsafe {
         let received_count = (*pac::USB).ENDPOINT[num as usize].RX_COUNT as u32;
         let ep = EP_OUT_CONTROLLER[num as usize].as_ref().unwrap();
-        log::trace!(
+        trace!(
             "usbd_ep_rx {:?}: {:?}; Received count {:?}",
             num,
             status,
@@ -874,7 +874,7 @@ extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
                 & pac::RxCSRL_REG_EPN_DMA_MODE_MASK as u16)
                 == 0
             {
-                log::trace!("DMA mode 0");
+                trace!("DMA mode 0");
 
                 // MSS_USB_CIF_dma_write_count
                 (*pac::USB).DMA_CHANNEL[ep.ep.dma_channel as usize].COUNT = received_count;
@@ -883,7 +883,7 @@ extern "C" fn usbd_ep_rx(num: pac::mss_usb_ep_num_t, status: u8) {
                     pac::DMA_CNTL_REG_START_XFR_MASK;
                 return; // A DMA interrupt will be triggered
             } else {
-                log::trace!("DMA mode 1");
+                trace!("DMA mode 1");
                 // MSS_USB_CIF_dma_stop_xfr
                 (*pac::USB).DMA_CHANNEL[ep.ep.dma_channel as usize].CNTL &=
                     !pac::DMA_CNTL_REG_START_XFR_MASK;
@@ -919,7 +919,7 @@ fn tx_complete(ep_num: usize) {
 }
 
 extern "C" fn usbd_ep_tx_complete(num: pac::mss_usb_ep_num_t, status: u8) {
-    log::trace!("usbd_ep_tx_complete {:?}: {:?}", num, status);
+    trace!("usbd_ep_tx_complete {:?}: {:?}", num, status);
     // unsafe {
     //     let dma_channel = EP_IN_CONTROLLER[num as usize]
     //         .as_mut()
@@ -944,7 +944,7 @@ extern "C" fn usbd_dma_handler(
     status: u8,
     dma_addr_val: u32,
 ) {
-    log::trace!(
+    trace!(
         "usbd_dma_handler {:?}: {:?}, {:?}, 0x{:x?}",
         ep_num,
         dma_dir,
@@ -952,7 +952,7 @@ extern "C" fn usbd_dma_handler(
         dma_addr_val
     );
     if status == pac::DMA_XFR_ERROR as u8 {
-        log::error!("DMA transfer error");
+        error!("DMA transfer error");
     } else {
         if dma_dir == pac::mss_usb_dma_dir_t_MSS_USB_DMA_READ {
             // Tx
@@ -964,7 +964,7 @@ extern "C" fn usbd_dma_handler(
             }
         } else {
             // Rx
-            log::trace!("DMA RX {:?}", ep_num);
+            trace!("DMA RX {:?}", ep_num);
             unsafe {
                 let received_count = dma_addr_val
                     - EP_OUT_CONTROLLER[ep_num as usize]
@@ -979,7 +979,7 @@ extern "C" fn usbd_dma_handler(
 }
 
 extern "C" fn usbd_reset() {
-    log::trace!("usbd_reset");
+    trace!("usbd_reset");
     critical_section::with(|_| unsafe {
         BUS_EVENT.reset = true;
         #[allow(static_mut_refs)]
@@ -990,7 +990,7 @@ extern "C" fn usbd_reset() {
 }
 
 extern "C" fn usbd_suspend() {
-    log::trace!("usbd_suspend");
+    trace!("usbd_suspend");
     critical_section::with(|_| unsafe {
         BUS_EVENT.suspend = true;
         #[allow(static_mut_refs)]
@@ -1001,7 +1001,7 @@ extern "C" fn usbd_suspend() {
 }
 
 extern "C" fn usbd_resume() {
-    log::trace!("usbd_resume");
+    trace!("usbd_resume");
     critical_section::with(|_| unsafe {
         BUS_EVENT.resume = true;
         #[allow(static_mut_refs)]
@@ -1012,7 +1012,7 @@ extern "C" fn usbd_resume() {
 }
 
 extern "C" fn usbd_disconnect() {
-    log::trace!("usbd_disconnect");
+    trace!("usbd_disconnect");
     critical_section::with(|_| unsafe {
         BUS_EVENT.disconnect = true;
         #[allow(static_mut_refs)]

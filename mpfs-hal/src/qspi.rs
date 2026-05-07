@@ -108,7 +108,7 @@ impl SetConfig for Qspi {
                 | (0 << pac::CTRL_XIP)
                 | (0 << pac::CTRL_XIPADDR)
                 | pac::CTRL_EN_MASK;
-            log::trace!("QSPI Control Register: {:#032b}", value);
+            trace!("QSPI Control Register: {:#032b}", value);
             (*pac::QSPI).CONTROL = value;
         }
         Ok(())
@@ -120,7 +120,7 @@ impl SetConfig for Qspi {
 impl embedded_hal::spi::SpiBus<u8> for Qspi {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
         let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
-        log::trace!("Reading from QSPI. Buffer aligned: {:?}", buffer_aligned);
+        trace!("Reading from QSPI. Buffer aligned: {:?}", buffer_aligned);
         unsafe {
             // Wait until QSPI is ready - needs volatile read
             while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_READY_MASK) == 0 {
@@ -203,7 +203,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             }
             // Make sure the read is complete (but we shouldn't get here) - needs volatile read
             while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RDONE_MASK) == 0 {
-                log::warn!("Warning: read not complete");
+                warn!("Warning: read not complete");
                 if (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_FLAGSX4_MASK) != 0 {
                     core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 } else {
@@ -211,13 +211,13 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        log::trace!("QSPI read complete: {:x?}", words);
+        trace!("QSPI read complete: {:x?}", words);
         Ok(())
     }
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
-        log::trace!(
+        trace!(
             "Writing to QSPI {:x?}. Buffer aligned: {:?}",
             words,
             buffer_aligned
@@ -288,7 +288,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 core::hint::spin_loop();
             }
         }
-        log::trace!("QSPI write complete");
+        trace!("QSPI write complete");
         Ok(())
     }
 
@@ -296,7 +296,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
         let buffer_aligned: bool = write.as_ptr().align_offset(4) == 0
             && read.as_ptr().align_offset(4) == 0
             && (write.len() > 3 || read.len() > 3);
-        log::trace!(
+        trace!(
             "QSPI transfer {:x?}. Buffer aligned: {:?}",
             write,
             buffer_aligned
@@ -403,7 +403,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             }
             // Make sure the read is complete (but we shouldn't get here) - needs volatile read
             while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RDONE_MASK) == 0 {
-                log::warn!("Warning: read not complete");
+                warn!("Warning: read not complete");
                 if (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_FLAGSX4_MASK) != 0 {
                     core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 } else {
@@ -411,13 +411,13 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        log::trace!("QSPI transfer received {:x?}", read);
+        trace!("QSPI transfer received {:x?}", read);
         Ok(())
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
         let buffer_aligned: bool = words.as_ptr().align_offset(4) == 0 && words.len() > 3;
-        log::trace!(
+        trace!(
             "QSPI transfer_in_place {:x?}. Buffer aligned: {:?}",
             words,
             buffer_aligned
@@ -504,7 +504,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
             }
             // Make sure the read is complete (but we shouldn't get here) - needs volatile read
             while (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_RDONE_MASK) == 0 {
-                log::warn!("Warning: read not complete");
+                warn!("Warning: read not complete");
                 if (core::ptr::read_volatile(&(*pac::QSPI).STATUS) & pac::STTS_FLAGSX4_MASK) != 0 {
                     core::ptr::read_volatile(&(*pac::QSPI).RXDATAX4);
                 } else {
@@ -512,7 +512,7 @@ impl embedded_hal::spi::SpiBus<u8> for Qspi {
                 }
             }
         }
-        log::trace!("QSPI transfer_in_place received {:x?}", words);
+        trace!("QSPI transfer_in_place received {:x?}", words);
         Ok(())
     }
 

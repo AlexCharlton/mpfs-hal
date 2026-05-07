@@ -2,6 +2,9 @@
 
 extern crate alloc;
 
+#[macro_use]
+mod log;
+
 mod executor;
 pub use executor::Executor;
 

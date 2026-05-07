@@ -513,7 +513,7 @@ impl<T: UartPeripheral> embedded_io_async::Read for UartRx<T> {
             return Err(Error::EmptyBuffer);
         }
         let uart_idx = self.peripheral.number() as usize;
-        log::trace!("UART{}: read", uart_idx);
+        trace!("UART{}: read", uart_idx);
 
         // Wait for data if buffer is empty
         core::future::poll_fn(|cx| {
@@ -551,7 +551,7 @@ fn uart_idx(uart: *mut pac::mss_uart_instance_t) -> usize {
 
 extern "C" fn uart_rx_handler(uart: *mut pac::mss_uart_instance_t) {
     let uart_idx = uart_idx(uart);
-    log::trace!("UART{}: rx handler", uart_idx);
+    trace!("UART{}: rx handler", uart_idx);
     unsafe {
         let (mut write_idx, mut read_idx) = RX_BUFFER_USED[uart_idx];
 
@@ -576,6 +576,6 @@ extern "C" fn uart_rx_handler(uart: *mut pac::mss_uart_instance_t) {
             }
         }
 
-        log::trace!("UART{}: got {} bytes", uart_idx, size);
+        trace!("UART{}: got {} bytes", uart_idx, size);
     }
 }

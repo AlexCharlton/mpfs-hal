@@ -149,7 +149,7 @@ macro_rules! impl_gpio_interrupt {
         #[unsafe(no_mangle)]
         extern "C" fn $interrupt_handler() -> u8 {
             let interrupt = unsafe { &mut GPIO_INTERRUPTS[$interrupt_idx] };
-            log::trace!("GPIO interrupt {} triggered: {:?}", $interrupt_idx, interrupt);
+            trace!("GPIO interrupt {} triggered: {:?}", $interrupt_idx, interrupt);
             if let Some(waker) = interrupt.waker.take() {
                 interrupt.triggered = true;
                 waker.wake();
@@ -447,12 +447,12 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
-                    log::trace!("Configuring MSS GPIO {:?} to output", self);
+                    trace!("Configuring MSS GPIO {:?} to output", self);
                     pac::MSS_GPIO_config(typedef, self.number as u32, pac::MSS_GPIO_OUTPUT_MODE);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
-                    log::trace!("Configuring FPGA Core GPIO {:?} to output", self);
+                    trace!("Configuring FPGA Core GPIO {:?} to output", self);
                     pac::GPIO_config(&mut address, self.number as u32, pac::MSS_GPIO_OUTPUT_MODE);
                 }
             }
@@ -464,7 +464,7 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
-                    log::trace!(
+                    trace!(
                         "Configuring MSS GPIO {:?} to input with trigger {:?}",
                         self,
                         config
@@ -477,7 +477,7 @@ impl Pin {
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
-                    log::trace!(
+                    trace!(
                         "Configuring FPGA Core GPIO {:?} to input with trigger {:?}",
                         self,
                         config
@@ -497,14 +497,14 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
-                    log::trace!("Setting MSS GPIO {:?} to high", self);
+                    trace!("Setting MSS GPIO {:?} to high", self);
                     pac::MSS_GPIO_set_output(typedef, self.number as u32, 1);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
                     let mut gpio_outputs = pac::GPIO_get_outputs(&mut address);
                     gpio_outputs |= 1 << self.number;
-                    log::trace!(
+                    trace!(
                         "Setting FPGA Core GPIO {:?} to high with value {:?}",
                         self,
                         gpio_outputs
@@ -520,14 +520,14 @@ impl Pin {
         unsafe {
             match self.peripheral {
                 GpioPeripheral::Mss(typedef) => {
-                    log::trace!("Setting MSS GPIO {:?} to low", self);
+                    trace!("Setting MSS GPIO {:?} to low", self);
                     pac::MSS_GPIO_set_output(typedef, self.number as u32, 0);
                 }
                 GpioPeripheral::FpgaCore(address) => {
                     let mut address = address;
                     let mut gpio_outputs = pac::GPIO_get_outputs(&mut address);
                     gpio_outputs &= !(1 << self.number);
-                    log::trace!(
+                    trace!(
                         "Setting FPGA Core GPIO {:?} to low with value {:?}",
                         self,
                         gpio_outputs
@@ -836,7 +836,7 @@ macro_rules! impl_gpio_pin {
                             if $peripheral.is_gpio2() {
                                 // Enable GPIO2 interrupt
                                 (*$crate::pac::SYSREG).GPIO_INTERRUPT_FAB_CR |= 1 << $num;
-                                log::trace!(
+                                trace!(
                                     "Enabled GPIO2 interrupt for pin {}; {:x?}",
                                     $num,
                                     (*$crate::pac::SYSREG).GPIO_INTERRUPT_FAB_CR
@@ -1168,10 +1168,10 @@ mod beaglev_fire {
             unsafe {
                 // FPGA Core GPIO initialization
                 let mut p8: pac::gpio_instance_t = P8_CORE_GPIO;
-                log::trace!("Initializing FPGA Core GPIO {:?}", p8);
+                trace!("Initializing FPGA Core GPIO {:?}", p8);
                 pac::GPIO_init(&mut p8, P8_CORE_GPIO.base_addr, P8_CORE_GPIO.apb_bus_width);
                 let mut p9: pac::gpio_instance_t = P9_CORE_GPIO;
-                log::trace!("Initializing FPGA Core GPIO {:?}", p9);
+                trace!("Initializing FPGA Core GPIO {:?}", p9);
                 pac::GPIO_init(&mut p9, P9_CORE_GPIO.base_addr, P9_CORE_GPIO.apb_bus_width);
             }
         }

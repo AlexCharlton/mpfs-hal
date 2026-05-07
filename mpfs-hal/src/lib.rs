@@ -15,6 +15,9 @@ pub use mpfs_hal_procmacros::{hart1_main, hart2_main, hart3_main, hart4_main, in
 mod mutex;
 pub use mutex::Mutex;
 
+#[macro_use]
+pub mod log;
+
 pub use mpfs_pac as pac;
 pub use pac::hart_id;
 

@@ -27,7 +27,7 @@ pub fn init() {
         // pac::PLIC_EnableIRQ(pac::PLIC_IRQn_Type_PLIC_SPI0_INT_OFFSET);
         // pac::PLIC_EnableIRQ(pac::PLIC_IRQn_Type_PLIC_SPI1_INT_OFFSET);
     }
-    log::debug!("SPI initialized");
+    debug!("SPI initialized");
 }
 
 pub trait SpiPeripheral: crate::Peripheral {
@@ -268,7 +268,7 @@ impl<T: SpiPeripheral> Spi<T> {
             return Ok(());
         }
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
-        log::trace!(
+        trace!(
             "Writing to SPI {:x?}. Buffer aligned: {}; Byte count: {}",
             data,
             buffer_aligned,
@@ -364,7 +364,7 @@ impl<T: SpiPeripheral> Spi<T> {
         }
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
 
-        log::trace!(
+        trace!(
             "Reading from SPI. Buffer aligned: {}; Byte count: {}",
             buffer_aligned,
             data.len()
@@ -474,7 +474,7 @@ impl<T: SpiPeripheral> Spi<T> {
             && read.as_ptr().align_offset(4) == 0
             && (write.len() > 3 || read.len() > 3);
 
-        log::trace!(
+        trace!(
             "Transferring from SPI. Read len: {}; Write: {:x?}; Buffer aligned: {}",
             read.len(),
             write,
@@ -624,7 +624,7 @@ impl<T: SpiPeripheral> Spi<T> {
         }
 
         let buffer_aligned: bool = data.as_ptr().align_offset(4) == 0 && data.len() > 3;
-        log::trace!(
+        trace!(
             "Transferring in place, buffer aligned? {}; Data: {:x?}",
             buffer_aligned,
             data

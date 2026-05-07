@@ -1,6 +1,6 @@
 [package]
 name = "mpfs-hal"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
 description = "Hardware Abstraction Layer for PolarFire SoC"
@@ -23,7 +23,7 @@ default = [
 ]
 debug-logs = ["print"]
 log = ["print", "dep:log", "embassy-sync", "alloc"]
-log-colors = []
+log-colors = ["log"]
 alloc = ["embedded-alloc", "embedded-io/alloc"]
 print = []
 beaglev-fire = ["mpfs-pac/beaglev-fire"]

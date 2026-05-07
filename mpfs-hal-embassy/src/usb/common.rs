@@ -145,7 +145,7 @@ pub fn alloc_fifo_addr(
             endpoints[i - 1].fifo_addr + endpoints[i - 1].fifo_size
         };
         if fifo_addr + fifo_size > IN_ENDPOINTS_START_ADDR {
-            log::error!(
+            error!(
                 "FIFO address is out of bounds for out endpoint {:?} with size {:?}",
                 i,
                 max_packet_size

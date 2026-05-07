@@ -13,7 +13,7 @@ default-target = "riscv64gc-unknown-none-elf"
 features = []
 
 [features]
-default = ["beaglev-fire", "usb-host", "usb-device", "alloc"]
+default = ["beaglev-fire", "usb-host", "usb-device", "alloc", "log"]
 debug-logs = ["mpfs-hal/debug-logs"]
 beaglev-fire = ["mpfs-hal/beaglev-fire"]
 usb-host = []
@@ -35,5 +35,5 @@ embassy-sync = { workspace = true }
 embassy-usb-driver = { workspace = true }
 embedded-hal = { workspace = true }
 embedded-hal-async = { workspace = true }
-log = { workspace = true }
+log = { workspace = true, optional = true }
 static_cell = { version = "2.1" }
